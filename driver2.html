@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>司機端 - 位置分享</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px 20px; background: #eee; }
+        .card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        #status { font-size: 1.2rem; color: #d32f2f; font-weight: bold; margin: 20px 0; }
+        .info { color: #666; font-size: 0.9rem; }
+        button { 
+            padding: 15px 30px; font-size: 1.1rem; margin: 10px; border: none; 
+            border-radius: 8px; cursor: pointer; transition: 0.2s;
+        }
+        .btn-small { background: #BBDEFB; color: #1565C0; }
+        .btn-medium { background: #C8E6C9; color: #2E7D32; }
+        button:active { transform: scale(0.95); }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <!-- 步驟 1：選擇車種 -->
+        <div id="setup-area">
+            <h3>🚌 請選擇目前車種</h3>
+            <button class="btn-small" onclick="startTracking('small')">🚐 小巴 (Small)</button>
+            <button class="btn-medium" onclick="startTracking('medium')">🚌 中巴 (Medium)</button>
+        </div>
+
+        <!-- 步驟 2：顯示狀態 -->
+        <div id="tracking-area" style="display:none;">
+            <h2 id="bus-title">位置上傳中</h2>
+            <div id="status">等待定位中...</div>
+            <div class="info" id="coords">緯度: --, 經度: --</div>
+			
+		<!-- 新增：重選按鈕 -->
+		<button onclick="resetTracking()" style="margin-top: 20px; background: #607D8B; color: white; padding: 10px 20px; font-size: 0.9rem;">
+        🔄 選錯了，重新選擇車種
+		</button>
+	
+            <p style="font-size: 0.8rem; color: #999; margin-top: 20px;">
+                Session ID: <span id="session-display">--</span>
+            </p>
+        </div>
+    </div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref, set, onValue, onDisconnect, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+    // Firebase 配置 (請確保這裡有定義 firebaseConfig)
+    const firebaseConfig = {
+        apiKey: "AIzaSyDxDD9jZA25Hk19HF0UUo0f3ZiEWv1azuk",
+        authDomain: "advantech-shuttle-tracker.firebaseapp.com",
+        databaseURL: "https://advantech-shuttle-tracker-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "advantech-shuttle-tracker",
+        storageBucket: "advantech-shuttle-tracker.firebasestorage.app",
+        messagingSenderId: "749819334514",
+        appId: "1:749819334514:web:582850faa8216c5b7d57eb",
+        measurementId: "G-1V8B0TVM17"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const mySessionId = Math.random().toString(36).substring(7);
+    let isActive = true;
+    let watchId = null; 
+	let currentBusRef = null; // 用來記錄目前的資料庫節點
+
+    // 新增：重選車種的函式
+    window.resetTracking = function() {
+        const confirmReset = confirm("確定要停止目前追蹤並重新選擇嗎？");
+        if (confirmReset) {
+            isActive = false;
+            if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+            if (currentBusRef) remove(currentBusRef); // 選錯了就先把舊的資料清掉
+            location.reload(); // 最簡單的方法是直接重新整理網頁
+        }
+    };
+
+    window.startTracking = function(type) {
+        // --- 修改：全時段開放 ---
+        // 註解掉時段限制判斷，或直接移除這段
+        /*
+        const now = new Date();
+        const currentHour = now.getHours(); 
+        if (currentHour < 16 || currentHour >= 19) {
+            alert("非服務時段！");
+            return; 
+        }
+        */
+        console.log("已開啟全時段測試模式");
+
+        // --- 變數與 UI 初始化 ---
+        currentBusRef = ref(db, `shuttle/${type}`);
+        isActive = true; // 確保重啟時是活耀的
+        
+        document.getElementById('setup-area').style.display = 'none';
+        document.getElementById('tracking-area').style.display = 'block';
+        document.getElementById('bus-title').innerText = (type === 'small' ? "🚐 小巴" : "🚌 中巴") + " 位置上傳中";
+        document.getElementById('session-display').innerText = mySessionId;
+		
+    ///window.startTracking = function(type) {
+        // --- 1. 時段限制 (16:00 - 19:00) ---
+        ///const now = new Date();
+        ///const currentHour = new Date(new Date().getTime() + 8 * 3600000).getUTCHours();
+
+        ///if (currentHour < 16 || currentHour >= 19) {
+        ///    alert("非服務時段！本助手僅在 16:00 - 19:00 開放使用。");
+        ///    return; 
+        ///} // <--- 之前漏掉這個閉合括號
+
+        // --- 2. 變數與 UI 初始化 ---
+        const busRef = ref(db, `shuttle/${type}`);
+        
+        document.getElementById('setup-area').style.display = 'none';
+        document.getElementById('tracking-area').style.display = 'block';
+        document.getElementById('bus-title').innerText = (type === 'small' ? "🚐 小巴" : "🚌 中巴") + " 位置上傳中";
+        document.getElementById('session-display').innerText = mySessionId;
+
+        // --- 3. 3 小時自動斷線計時器 ---
+        setTimeout(() => {
+            isActive = false;
+            if (watchId !== null) navigator.geolocation.clearWatch(watchId); 
+            remove(busRef); 
+            document.getElementById('status').innerText = "🔴 已達到 3 小時連線上限，系統自動斷線。";
+            document.getElementById('status').style.color = "gray";
+            alert("連線逾時：為了省電與安全，系統已停止位置分享。");
+        }, 10800000); 
+
+        // --- 4. 監聽是否被擠掉 (Session 互斥) ---
+        onValue(busRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data && data.sessionId && data.sessionId !== mySessionId) {
+                isActive = false;
+                if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+                document.getElementById('status').innerText = "🔴 已有其他裝置開啟此車型定位";
+                document.getElementById('status').style.color = "#ef6c00";
+            }
+        });
+
+        // --- 5. 斷線清理 ---
+        onDisconnect(busRef).remove();
+
+        // --- 6. 啟動 GPS 追蹤 ---
+        if ("geolocation" in navigator) {
+            watchId = navigator.geolocation.watchPosition((position) => {
+                if (!isActive) return;
+
+                const { latitude, longitude } = position.coords;
+                
+                set(busRef, {
+                    lat: latitude,
+                    lng: longitude,
+                    sessionId: mySessionId,
+                    timestamp: Date.now()
+                }).then(() => {
+                    document.getElementById('status').innerText = "🟢 位置分享中...";
+                    document.getElementById('status').style.color = "#2e7d32";
+                    document.getElementById('coords').innerText = `緯度: ${latitude.toFixed(5)}, 經度: ${longitude.toFixed(5)}`;
+                });
+
+            }, (error) => {
+                document.getElementById('status').innerText = "🔴 定位失敗：" + error.message;
+            }, { 
+                enableHighAccuracy: true, 
+                maximumAge: 0, 
+                timeout: 10000 
+            });
+        } else {
+            document.getElementById('status').innerText = "🔴 瀏覽器不支援定位";
+        }
+    };
+</script>
+</body>
+</html>
