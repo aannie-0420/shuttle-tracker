@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>研華接駁車助手 - 林口園區</title>
+
+<style>
+
+body{
+    font-family:-apple-system,sans-serif;
+    background:#f4f7f6;
+    padding:20px;
+    color:#333;
+}
+
+.title{
+    text-align:center;
+    margin-bottom:20px;
+}
+
+.card{
+    background:white;
+    border-radius:15px;
+    padding:20px;
+    box-shadow:0 4px 10px rgba(0,0,0,0.1);
+    margin-bottom:20px;
+}
+
+.card-title{
+    font-size:1.2rem;
+    font-weight:bold;
+    margin-bottom:15px;
+}
+
+.decision-box{
+    padding:15px;
+    border-radius:10px;
+    font-weight:bold;
+    font-size:1.2rem;
+    margin:15px 0;
+    transition:all 0.3s ease;
+    text-align:center;
+}
+
+.go-walk{
+    background:#e8f5e9;
+    color:#2e7d32;
+    border:2px solid #2e7d32;
+}
+
+.wait-bus{
+    background:#e3f2fd;
+    color:#1565c0;
+    border:2px solid #1565c0;
+}
+
+.warning{
+    background:#fff3e0;
+    color:#ef6c00;
+    border:2px solid #ef6c00;
+}
+
+.bus-card{
+    border:1px solid #ddd;
+    border-radius:10px;
+    padding:15px;
+    margin-top:15px;
+}
+
+.bus-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:10px;
+}
+
+.bus-name{
+    font-size:1.1rem;
+    font-weight:bold;
+}
+
+.online{
+    color:#2e7d32;
+    font-weight:bold;
+}
+
+.offline{
+    color:#999;
+}
+
+.stats{
+    display:flex;
+    justify-content:space-around;
+    margin-top:15px;
+}
+
+.stat-item{
+    flex:1;
+    text-align:center;
+}
+
+.time{
+    font-size:1.5rem;
+    font-weight:bold;
+    display:block;
+}
+
+.label{
+    font-size:0.8rem;
+    color:#666;
+}
+
+.weather{
+    font-size:1rem;
+    line-height:1.8;
+}
+
+.schedule-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:20px;
+}
+
+.schedule-column{
+    border:1px solid #ddd;
+    border-radius:10px;
+    padding:15px;
+}
+
+.schedule-title{
+    font-weight:bold;
+    margin-bottom:10px;
+    font-size:1.1rem;
+}
+
+.schedule-item{
+    padding:4px 0;
+}
+
+.highlight{
+    color:red;
+    font-weight:bold;
+}
+
+.footer{
+    text-align:center;
+    color:#999;
+    margin-top:30px;
+    font-size:0.85rem;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<h2 class="title">
+🚐 研華林口園區接駁車助手
+</h2>
+
+<!-- 決策建議 -->
+
+<div class="card">
+
+    <div class="card-title">
+        🚶 通勤建議
+    </div>
+
+    <div id="decision-status" class="decision-box">
+        連線中...
+    </div>
+
+    <p id="reasoning">
+        正在同步即時巴士資訊...
+    </p>
+
+    <div class="stats">
+
+        <div class="stat-item">
+            <span class="label">
+                等車 + 車程
+            </span>
+
+            <span id="bus-time" class="time">
+                --
+            </span>
+        </div>
+
+        <div class="stat-item">
+
+            <span class="label">
+                步行時間
+            </span>
+
+            <span id="walk-time" class="time">
+                20 min
+            </span>
+
+        </div>
+
+    </div>
+
+</div>
+
+<!-- 天氣 -->
+
+<div class="card">
+
+    <div class="card-title">
+        🌤️ 即時資訊
+    </div>
+
+    <div class="weather">
+
+        <div id="weather-text">
+            天氣資訊載入中...
+        </div>
+
+        <div id="traffic-text">
+            路況資訊載入中...
+        </div>
+
+    </div>
+
+</div>
+
+<!-- 車輛 -->
+
+<div class="card">
+
+    <div class="card-title">
+        🚌 即時車輛狀態
+    </div>
+
+    <div id="small-bus" class="bus-card">
+
+        <div class="bus-header">
+
+            <div class="bus-name">
+                🚐 小巴
+            </div>
+
+            <div id="small-status" class="offline">
+                離線
+            </div>
+
+        </div>
+
+        <div>
+            方向：
+            <span id="small-direction">
+                --
+            </span>
+        </div>
+
+        <div>
+            預估到A8：
+            <span id="small-eta">
+                --
+            </span>
+        </div>
+
+    </div>
+
+    <div id="medium-bus" class="bus-card">
+
+        <div class="bus-header">
+
+            <div class="bus-name">
+                🚌 中巴
+            </div>
+
+            <div id="medium-status" class="offline">
+                離線
+            </div>
+
+        </div>
+
+        <div>
+            方向：
+            <span id="medium-direction">
+                --
+            </span>
+        </div>
+
+        <div>
+            預估到A8：
+            <span id="medium-eta">
+                --
+            </span>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- 班表 -->
+
+<div class="card">
+
+    <div class="card-title">
+        📅 接駁車班表
+    </div>
+
+    <div class="schedule-grid">
+
+        <div class="schedule-column">
+
+            <div class="schedule-title">
+                🚐 小巴
+            </div>
+
+            <div class="schedule-item">10:20</div>
+            <div class="schedule-item">11:20</div>
+            <div class="schedule-item">12:30</div>
+            <div class="schedule-item">13:35</div>
+            <div class="schedule-item">14:35</div>
+            <div class="schedule-item">15:35</div>
+            <div class="schedule-item">18:45</div>
+            <div class="schedule-item">19:15</div>
+            <div class="schedule-item">19:40</div>
+
+        </div>
+
+        <div class="schedule-column">
+
+            <div class="schedule-title">
+                🚌 中巴
+            </div>
+
+            <div class="schedule-item">17:10</div>
+
+            <div class="schedule-item highlight">
+                17:40（加開）
+            </div>
+
+            <div class="schedule-item highlight">
+                17:55（調整）
+            </div>
+
+            <div class="schedule-item">18:15</div>
+            <div class="schedule-item">18:35</div>
+            <div class="schedule-item">19:00</div>
+            <div class="schedule-item">19:30（不停A8）</div>
+            <div class="schedule-item">20:10（不停A8）</div>
+            <div class="schedule-item">20:35（不停A8）</div>
+            <div class="schedule-item">20:50（不停A8）</div>
+
+        </div>
+
+    </div>
+
+</div>
+
+<!-- Google Maps -->
+
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBYOfPOfRdXpRYxiKTGRMI4a5qTi6e1PFE&libraries=geometry"></script>
+
+<script type="module">
+
+////////////////////////////////////////////////////////////
+// Firebase
+////////////////////////////////////////////////////////////
+
+import { initializeApp }
+from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+
+import {
+    getDatabase,
+    ref,
+    onValue
+}
+from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+const firebaseConfig = {
+
+    apiKey:"AIzaSyDxDD9jZA25Hk19HF0UUo0f3ZiEWv1azuk",
+
+    authDomain:
+    "advantech-shuttle-tracker.firebaseapp.com",
+
+    databaseURL:
+    "https://advantech-shuttle-tracker-default-rtdb.asia-southeast1.firebasedatabase.app",
+
+    projectId:"advantech-shuttle-tracker",
+
+    storageBucket:
+    "advantech-shuttle-tracker.firebasestorage.app",
+
+    messagingSenderId:"749819334514",
+
+    appId:
+    "1:749819334514:web:582850faa8216c5b7d57eb"
+};
+
+const app = initializeApp(firebaseConfig);
+
+const db = getDatabase(app);
+
+////////////////////////////////////////////////////////////
+// 固定位置
+////////////////////////////////////////////////////////////
+
+const A8_ADDRESS =
+"桃園市龜山區文德路27號";
+
+////////////////////////////////////////////////////////////
+// 巴士資料
+////////////////////////////////////////////////////////////
+
+let busData = {
+
+    small:null,
+    medium:null
+};
+
+////////////////////////////////////////////////////////////
+// 天氣模擬
+////////////////////////////////////////////////////////////
+
+function updateWeather(){
+
+    const hour = new Date().getHours();
+
+    let weather = "☀️ 晴天 29°C";
+
+    let traffic = "🚗 路況順暢";
+
+    if(hour >= 17 && hour <= 19){
+
+        traffic = "🚗 下班車流稍多";
+    }
+
+    document.getElementById("weather-text")
+    .innerHTML = weather;
+
+    document.getElementById("traffic-text")
+    .innerHTML = traffic;
+}
+
+updateWeather();
+
+////////////////////////////////////////////////////////////
+// 更新車輛UI
+////////////////////////////////////////////////////////////
+
+function updateBusUI(type,data,eta){
+
+    const now = Date.now();
+
+    const online =
+    data &&
+    (now-data.timestamp) < 300000;
+
+    document.getElementById(type+"-status")
+    .innerHTML =
+    online ? "🟢 在線" : "⚪ 離線";
+
+    document.getElementById(type+"-status")
+    .className =
+    online ? "online" : "offline";
+
+    if(!online){
+
+        return;
+    }
+
+    ////////////////////////////////////////////////////////
+    // 方向
+    ////////////////////////////////////////////////////////
+
+    let direction = "判斷中";
+
+    if(data.direction === "toA8"){
+
+        direction = "➡️ 前往A8";
+    }
+
+    if(data.direction === "toAdvantech"){
+
+        direction = "⬅️ 返回研華";
+    }
+
+    document.getElementById(type+"-direction")
+    .innerHTML = direction;
+
+    ////////////////////////////////////////////////////////
+    // ETA
+    ////////////////////////////////////////////////////////
+
+    document.getElementById(type+"-eta")
+    .innerHTML =
+    eta + " 分鐘";
+}
+
+////////////////////////////////////////////////////////////
+// 通勤建議
+////////////////////////////////////////////////////////////
+
+function renderDecision(busTime,walkTime){
+
+    const threshold = 2;
+
+    const display =
+    document.getElementById("decision-status");
+
+    const reason =
+    document.getElementById("reasoning");
+
+    document.getElementById("bus-time")
+    .innerHTML =
+    busTime + " min";
+
+    ////////////////////////////////////////////////////////
+    // 天氣
+    ////////////////////////////////////////////////////////
+
+    const rain =
+    false;
+
+    if(busTime > walkTime + threshold && !rain){
+
+        display.innerHTML =
+        "🚶 建議步行";
+
+        display.className =
+        "decision-box go-walk";
+
+        reason.innerHTML =
+        "目前步行較快。";
+
+    }else{
+
+        display.innerHTML =
+        "🚌 建議等車";
+
+        display.className =
+        "decision-box wait-bus";
+
+        reason.innerHTML =
+        "目前搭車較舒適。";
+    }
+}
+
+////////////////////////////////////////////////////////////
+// Google ETA
+////////////////////////////////////////////////////////////
+
+function calculateETA(bus,callback){
+
+    if(!bus){
+
+        callback(null);
+
+        return;
+    }
+
+    const service =
+    new google.maps.DistanceMatrixService();
+
+    service.getDistanceMatrix({
+
+        origins:[
+            {
+                lat:bus.lat,
+                lng:bus.lng
+            }
+        ],
+
+        destinations:[
+            A8_ADDRESS
+        ],
+
+        travelMode:"DRIVING",
+
+        drivingOptions:{
+
+            departureTime:
+            new Date(),
+
+            trafficModel:
+            "bestguess"
+        }
+
+    },
+
+    (response,status)=>{
+
+        if(status !== "OK"){
+
+            callback(null);
+
+            return;
+        }
+
+        const element =
+        response.rows[0].elements[0];
+
+        const sec =
+        element.duration_in_traffic
+        ? element.duration_in_traffic.value
+        : element.duration.value;
+
+        callback(
+            Math.round(sec/60)
+        );
+    });
+}
+
+////////////////////////////////////////////////////////////
+// 選擇最快車輛
+////////////////////////////////////////////////////////////
+
+function updateBestOption(){
+
+    const now = Date.now();
+
+    const active = Object.values(busData)
+    .filter(b =>
+        b &&
+        (now-b.timestamp)<300000
+    );
+
+    if(active.length === 0){
+
+        document.getElementById("decision-status")
+        .innerHTML =
+        "⚠️ 暫無車輛資訊";
+
+        document.getElementById("decision-status")
+        .className =
+        "decision-box warning";
+
+        return;
+    }
+
+    ////////////////////////////////////////////////////////
+    // 選第一台
+    ////////////////////////////////////////////////////////
+
+    const bus = active[0];
+
+    calculateETA(bus,(eta)=>{
+
+        if(!eta){
+
+            return;
+        }
+
+        ////////////////////////////////////////////////////
+        // 雨天步行增加
+        ////////////////////////////////////////////////////
+
+        let walkTime = 20;
+
+        const hour = new Date().getHours();
+
+        if(hour >= 17){
+
+            walkTime = 24;
+        }
+
+        renderDecision(eta,walkTime);
+    });
+}
+
+////////////////////////////////////////////////////////////
+// Firebase監聽
+////////////////////////////////////////////////////////////
+
+onValue(
+
+    ref(db,"shuttle/small"),
+
+    (snap)=>{
+
+        busData.small = snap.val();
+
+        calculateETA(busData.small,(eta)=>{
+
+            updateBusUI(
+                "small",
+                busData.small,
+                eta || "--"
+            );
+
+            updateBestOption();
+        });
+    }
+);
+
+onValue(
+
+    ref(db,"shuttle/medium"),
+
+    (snap)=>{
+
+        busData.medium = snap.val();
+
+        calculateETA(busData.medium,(eta)=>{
+
+            updateBusUI(
+                "medium",
+                busData.medium,
+                eta || "--"
+            );
+
+            updateBestOption();
+        });
+    }
+);
+
+</script>
+
+<div class="footer">
+
+    Advantech ESG - 節能減碳從走路開始
+
+</div>
+
+</body>
+</html>
