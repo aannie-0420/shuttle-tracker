@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>智慧接駁車 GPS 系統</title>
+
+<style>
+
+body{
+    font-family:sans-serif;
+    background:#f0f0f0;
+    padding:30px;
+    text-align:center;
+}
+
+.card{
+    background:white;
+    max-width:750px;
+    margin:auto;
+    padding:30px;
+    border-radius:20px;
+    box-shadow:0 4px 15px rgba(0,0,0,0.1);
+}
+
+button{
+    padding:15px 30px;
+    border:none;
+    border-radius:10px;
+    margin:10px;
+    cursor:pointer;
+    font-size:18px;
+}
+
+.small{
+    background:#BBDEFB;
+    color:#1565C0;
+}
+
+.medium{
+    background:#C8E6C9;
+    color:#2E7D32;
+}
+
+#status{
+    margin-top:20px;
+    font-size:24px;
+    font-weight:bold;
+}
+
+#direction{
+    margin-top:15px;
+    font-size:30px;
+    font-weight:bold;
+}
+
+.info{
+    margin-top:15px;
+    color:#666;
+    line-height:1.8;
+}
+
+.good{
+    color:#2E7D32;
+}
+
+.bad{
+    color:#D32F2F;
+}
+
+.warn{
+    color:#EF6C00;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="card">
+
+    <div id="setup-area">
+
+        <h2>🚌 智慧接駁車 GPS 系統</h2>
+
+        <button class="small" onclick="startTracking('small')">
+            🚐 小巴
+        </button>
+
+        <button class="medium" onclick="startTracking('medium')">
+            🚌 中巴
+        </button>
+
+    </div>
+
+    <div id="tracking-area" style="display:none;">
+
+        <h2 id="bus-title"></h2>
+
+        <div id="status">
+            等待GPS...
+        </div>
+
+        <div id="direction">
+            ❓ 判斷中
+        </div>
+
+        <div class="info" id="coords">
+
+        </div>
+
+    </div>
+
+</div>
+
+<script type="module">
+
+////////////////////////////////////////////////////////////
+// Firebase
+////////////////////////////////////////////////////////////
+
+import { initializeApp }
+from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+
+import {
+    getDatabase,
+    ref,
+    set,
+    onValue,
+    onDisconnect,
+    remove
+}
+from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+const firebaseConfig = {
+
+    apiKey: "AIzaSyDxDD9jZA25Hk19HF0UUo0f3ZiEWv1azuk",
+
+    authDomain:
+    "advantech-shuttle-tracker.firebaseapp.com",
+
+    databaseURL:
+    "https://advantech-shuttle-tracker-default-rtdb.asia-southeast1.firebasedatabase.app",
+
+    projectId: "advantech-shuttle-tracker",
+
+    storageBucket:
+    "advantech-shuttle-tracker.firebasestorage.app",
+
+    messagingSenderId: "749819334514",
+
+    appId:
+    "1:749819334514:web:582850faa8216c5b7d57eb"
+};
+
+const app = initializeApp(firebaseConfig);
+
+const db = getDatabase(app);
+
+////////////////////////////////////////////////////////////
+// 基本設定
+////////////////////////////////////////////////////////////
+
+const mySessionId =
+Math.random().toString(36).substring(7);
+
+let watchId = null;
+
+let isActive = true;
+
+////////////////////////////////////////////////////////////
+// 固定座標
+////////////////////////////////////////////////////////////
+
+const ADVANTECH = { lat: 25.057506, lng: 121.381707 };
+const A8 = { lat: 25.060647897098864, lng: 121.37045402090081 };
+
+////////////////////////////////////////////////////////////
+// 去程區域
+////////////////////////////////////////////////////////////
+
+const TO_A8_ZONES = [
+
+    {
+        lat:25.0588,
+        lng:121.3780,
+        radius:180
+    },
+
+    {
+        lat:25.0602,
+        lng:121.3722,
+        radius:200
+    }
+];
+
+////////////////////////////////////////////////////////////
+// 回程區域
+////////////////////////////////////////////////////////////
+
+const TO_ADVANTECH_ZONES = [
+    { lat: 25.0580, lng: 121.3762, radius: 180 }, // 💡 盲點：這個半徑 180m 的圓圈，正好涵蓋了去程必經的文化一路/復興一路交界！
+    { lat: 25.0576, lng: 121.3795, radius: 180 }
+];
+
+////////////////////////////////////////////////////////////
+// 狀態
+////////////////////////////////////////////////////////////
+
+let currentDirection = "unknown";
+let pendingDirection = "unknown";
+let stableCount = 0;
+let lastGoodLat = null;
+let lastGoodLng = null;
+let lastGoodTime = null;
+let gpsHistory = [];
+const MAX_HISTORY = 5;
+
+////////////////////////////////////////////////////////////
+// GPS 平滑化
+////////////////////////////////////////////////////////////
+
+let gpsHistory = [];
+
+const MAX_HISTORY = 5;
+
+////////////////////////////////////////////////////////////
+// Haversine
+////////////////////////////////////////////////////////////
+
+function getDistance(lat1, lon1, lat2, lon2){
+
+    const R = 6371000;
+
+    const dLat = (lat2-lat1) * Math.PI/180;
+
+    const dLon = (lon2-lon1) * Math.PI/180;
+
+    const a =
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(lat1*Math.PI/180) *
+        Math.cos(lat2*Math.PI/180) *
+        Math.sin(dLon/2) *
+        Math.sin(dLon/2);
+
+    const c =
+        2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+    return R * c;
+}
+
+////////////////////////////////////////////////////////////
+// 是否進入區域
+////////////////////////////////////////////////////////////
+
+function isInsideZone(lat,lng,zones){
+
+    for(const zone of zones){
+
+        const dist = getDistance(
+            lat,
+            lng,
+            zone.lat,
+            zone.lng
+        );
+
+        if(dist <= zone.radius){
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+////////////////////////////////////////////////////////////
+// GPS 平滑化
+////////////////////////////////////////////////////////////
+
+function smoothGPS(lat,lng){
+
+    gpsHistory.push({lat,lng});
+
+    if(gpsHistory.length > MAX_HISTORY){
+
+        gpsHistory.shift();
+    }
+
+    const avgLat =
+    gpsHistory.reduce((a,b)=>a+b.lat,0)
+    / gpsHistory.length;
+
+    const avgLng =
+    gpsHistory.reduce((a,b)=>a+b.lng,0)
+    / gpsHistory.length;
+
+    return {
+
+        lat:avgLat,
+        lng:avgLng
+    };
+}
+
+////////////////////////////////////////////////////////////
+// 穩定切換方向
+////////////////////////////////////////////////////////////
+
+function updateDirection(newDirection) {
+    if (newDirection === pendingDirection) {
+        stableCount++;
+    } else {
+        pendingDirection = newDirection;
+        stableCount = 1;
+    }
+    // 連續 2 次穩定訊號就切換，加快反應速度（原為3次）
+    if (stableCount >= 2) {
+        currentDirection = pendingDirection;
+    }
+}
+
+////////////////////////////////////////////////////////////
+// 方向判定
+////////////////////////////////////////////////////////////
+
+function detectDirection(lat, lng) {
+    const distA8 = getDistance(lat, lng, A8.lat, A8.lng);
+    const distAdvantech = getDistance(lat, lng, ADVANTECH.lat, ADVANTECH.lng);
+
+    // 1. 極近端點強制作業
+    if (distAdvantech < 80) {
+        updateDirection("toA8"); // 在研華園區門口，一定是準備出發去 A8
+        return;
+    }
+    if (distA8 < 70) {
+        updateDirection("toAdvantech"); // 已經殺到 A8 正門口了，接下來的移動一定是返回研華
+        return;
+    }
+
+    // 2. 沒有上一次的位置，先依據當前靠近哪邊做初步猜測，避免一直顯示「判斷中」
+    if (lastGoodLat === null) {
+        if (distAdvantech < distA8) {
+            updateDirection("toA8");
+        } else {
+            updateDirection("toAdvantech");
+        }
+        return;
+    }
+
+    // 3. 核心動態追蹤：比較「前一點」與「這一點」到 A8 站的距離變化
+    const lastDistToA8 = getDistance(lastGoodLat, lastGoodLng, A8.lat, A8.lng);
+    const nowDistToA8 = distA8;
+    const diff = lastDistToA8 - nowDistToA8;
+
+    // 防止 GPS 原地微幅飄移（移動超過 15 公尺才算數）
+    if (Math.abs(diff) < 15) {
+        return;
+    }
+
+    if (diff > 0) {
+        // 離 A8 越來越近 -> 前往 A8
+        updateDirection("toA8");
+    } else {
+        // 離 A8 越來越遠 -> 返回研華 (司機隨機在復興北路或文化一路10巷回頭，只要一遠離 A8 就會立刻精確觸發！)
+        updateDirection("toAdvantech");
+    }
+}
+
+////////////////////////////////////////////////////////////
+// UI
+////////////////////////////////////////////////////////////
+
+function updateUI(lat,lng,accuracy){
+
+    const directionEl =
+    document.getElementById("direction");
+
+    if(currentDirection === "toA8"){
+
+        directionEl.innerHTML =
+        "➡️ 前往 A8";
+
+        directionEl.className = "good";
+
+    }else if(currentDirection === "toAdvantech"){
+
+        directionEl.innerHTML =
+        "⬅️ 返回研華";
+
+        directionEl.className = "warn";
+
+    }else{
+
+        directionEl.innerHTML =
+        "❓ 判斷中";
+
+        directionEl.className = "";
+    }
+
+    document.getElementById("coords").innerHTML =
+
+    `
+    緯度：${lat.toFixed(6)}
+    <br>
+    經度：${lng.toFixed(6)}
+    <br>
+    GPS誤差：±${accuracy.toFixed(0)}m
+    <br>
+    最近GPS點數：${gpsHistory.length}
+    `;
+}
+
+////////////////////////////////////////////////////////////
+// 啟動定位
+////////////////////////////////////////////////////////////
+
+window.startTracking = function(type){
+
+    const busRef = ref(db, `shuttle/${type}`);
+
+    ////////////////////////////////////////////////////////
+    // UI
+    ////////////////////////////////////////////////////////
+
+    document.getElementById("setup-area")
+    .style.display = "none";
+
+    document.getElementById("tracking-area")
+    .style.display = "block";
+
+    document.getElementById("bus-title")
+    .innerHTML =
+    type === "small"
+    ? "🚐 小巴定位中"
+    : "🚌 中巴定位中";
+
+    ////////////////////////////////////////////////////////
+    // Session互斥
+    ////////////////////////////////////////////////////////
+
+    onValue(busRef,(snapshot)=>{
+
+        const data = snapshot.val();
+
+        if(
+            data &&
+            data.sessionId &&
+            data.sessionId !== mySessionId
+        ){
+
+            isActive = false;
+
+            if(watchId){
+
+                navigator.geolocation.clearWatch(watchId);
+            }
+
+            document.getElementById("status")
+            .innerHTML =
+            "🔴 已有其他裝置使用";
+        }
+    });
+
+    ////////////////////////////////////////////////////////
+    // 斷線清除
+    ////////////////////////////////////////////////////////
+
+    onDisconnect(busRef).remove();
+
+    ////////////////////////////////////////////////////////
+    // GPS定位
+    ////////////////////////////////////////////////////////
+
+    watchId =
+    navigator.geolocation.watchPosition(
+
+        (position)=>{
+
+            if(!isActive) return;
+
+            ////////////////////////////////////////////////////
+            // 原始GPS
+            ////////////////////////////////////////////////////
+
+            const rawLat =
+            position.coords.latitude;
+
+            const rawLng =
+            position.coords.longitude;
+
+            const accuracy =
+            position.coords.accuracy;
+
+            ////////////////////////////////////////////////////
+            // accuracy 過濾
+            ////////////////////////////////////////////////////
+
+            if(accuracy > 80){
+
+                document.getElementById("status")
+                .innerHTML =
+                "⚠️ GPS訊號不佳（雨天/高架/捷運遮蔽）";
+
+                return;
+            }
+
+            ////////////////////////////////////////////////////
+            // GPS平滑化
+            ////////////////////////////////////////////////////
+
+            const smooth =
+            smoothGPS(rawLat,rawLng);
+
+            const lat = smooth.lat;
+
+            const lng = smooth.lng;
+
+            ////////////////////////////////////////////////////
+            // 最大速度限制
+            ////////////////////////////////////////////////////
+
+            const now = Date.now();
+
+            if(lastGoodLat !== null){
+
+                const dist =
+                getDistance(
+                    lastGoodLat,
+                    lastGoodLng,
+                    lat,
+                    lng
+                );
+
+                const sec =
+                (now-lastGoodTime)/1000;
+
+                const speed =
+                (dist/sec)*3.6;
+
+                // 超過120km/h視為GPS飄移
+
+                if(speed > 120){
+
+                    console.log("GPS跳點");
+
+                    return;
+                }
+            }
+
+            ////////////////////////////////////////////////////
+            // 方向判定
+            ////////////////////////////////////////////////////
+
+            detectDirection(lat,lng);
+
+            ////////////////////////////////////////////////////
+            // 更新最後可信GPS
+            ////////////////////////////////////////////////////
+
+            lastGoodLat = lat;
+
+            lastGoodLng = lng;
+
+            lastGoodTime = now;
+
+            ////////////////////////////////////////////////////
+            // Firebase
+            ////////////////////////////////////////////////////
+
+            set(busRef,{
+
+                lat:lat,
+
+                lng:lng,
+
+                direction:currentDirection,
+
+                accuracy:accuracy,
+
+                timestamp:now,
+
+                sessionId:mySessionId
+
+            });
+
+            ////////////////////////////////////////////////////
+            // UI
+            ////////////////////////////////////////////////////
+
+            document.getElementById("status")
+            .innerHTML =
+            "🟢 GPS定位中";
+
+            updateUI(lat,lng,accuracy);
+
+        },
+
+        (error)=>{
+
+            document.getElementById("status")
+            .innerHTML =
+            "🔴 GPS失敗：" + error.message;
+        },
+
+        {
+            enableHighAccuracy:true,
+
+            maximumAge:0,
+
+            timeout:10000
+        }
+    );
+
+};
+
+</script>
+
+</body>
+</html>
