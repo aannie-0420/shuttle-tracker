@@ -205,6 +205,33 @@ body{
 </div>
 
 <div class="card">
+    <div class="card-title">📅 園區接駁車固定發車時刻表 (林口園區發車)</div>
+    <div class="mrt-grid">
+        <div class="mrt-column">
+            <div class="mrt-dest-title">中午班次 (11:40 - 14:00)</div>
+            <div class="mrt-list">
+                <div class="mrt-item">🚗 小巴：11:40</div>
+                <div class="mrt-item">🚌 中巴：12:00</div>
+                <div class="mrt-item">🚗 小巴：12:30</div>
+                <div class="mrt-item">🚌 中巴：13:00</div>
+                <div class="mrt-item">🚗 小巴：13:30</div>
+                <div class="mrt-item">🚌 中巴：14:00</div>
+            </div>
+        </div>
+        <div class="mrt-column">
+            <div class="mrt-dest-title">下班傍晚班次 (16:30 - 20:10)</div>
+            <div class="mrt-list">
+                <div class="mrt-item">🚗 小巴：16:30, 16:50, 17:10, 17:30</div>
+                <div class="mrt-item">🚌 中巴：17:00, 17:20, 17:40, 18:00</div>
+                <div class="mrt-item">🚗 小巴：17:50, 18:10, 18:30, 18:50</div>
+                <div class="mrt-item">🚌 中巴：18:20, 18:40, 19:00, 19:30</div>
+                <div class="mrt-item">🚗 小巴：19:10, 19:40, 20:10</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
     <div class="card-title">☀️ 園區即時天氣狀況</div>
     <div class="weather-box">
         <div class="weather-item">
@@ -261,7 +288,7 @@ let busData = { small: null, medium: null };
 let busETAs = { small: null, medium: null };
 let currentPop = 0;
 
-// ✨【完整回歸】您最原始、最齊全的官方時刻表資料（完全無遺漏）
+// 機捷時刻表資料
 const MRT_TIMETABLE = {
     toTPE: [
         { type: "普通車", time: "11:44" }, { type: "直達車", time: "11:56" }, { type: "普通車", time: "11:59" },
@@ -359,7 +386,7 @@ function calculateETA(bus, callback) {
     });
 }
 
-// 🟢 調整為 90 秒判定離線
+// 🟢 修正：1.5分鐘在線過濾
 function updateBusUI(type, data, etaObj) {
     const statusEl = document.getElementById(`${type}-status`);
     const directionEl = document.getElementById(`${type}-direction`);
@@ -409,7 +436,7 @@ function updateUIAndCalculations() {
     const now = Date.now();
     let validBuses = [];
 
-    // 🟢 調整為 90 秒過濾決策
+    // 🟢 修正：1.5分鐘決策過濾
     if (busData.small && (now - busData.small.timestamp) < 90000 && !isVehicleOutofBounds(busData.small.lat, busData.small.lng)) {
         if (busETAs.small !== null) validBuses.push(busETAs.small);
     }
@@ -501,13 +528,13 @@ function updateMRTUI() {
 }
 
 ////////////////////////////////////////////////////////////
-// 🔒 Firebase 監聽：同機切換秒踢安全鎖
+// 🔒 Firebase 監聽：整合同機切換秒踢安全鎖
 ////////////////////////////////////////////////////////////
 onValue(ref(db, "shuttle/small"), (snap) => {
     const data = snap.val();
     busData.small = data;
 
-    // 💡 安全鎖：同台手機切換時，秒踢舊車
+    // 安全鎖：同設備切換時秒踢舊車種
     if (busData.small && busData.medium && 
         busData.small.sessionId === busData.medium.sessionId && 
         busData.medium.timestamp > busData.small.timestamp) {
@@ -525,7 +552,7 @@ onValue(ref(db, "shuttle/medium"), (snap) => {
     const data = snap.val();
     busData.medium = data;
 
-    // 💡 安全鎖：同台手機切換時，秒踢舊車
+    // 安全鎖：同設備切換時秒踢舊車種
     if (busData.small && busData.medium && 
         busData.small.sessionId === busData.medium.sessionId && 
         busData.small.timestamp > busData.medium.timestamp) {
