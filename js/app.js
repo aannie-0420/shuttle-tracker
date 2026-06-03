@@ -18,7 +18,7 @@ let isRaining = false;
 let weatherDescription = "偵測中...";
 
 // 🔋 智慧休眠名額控制常數
-const IDLE_TIMEOUT = 180000; // 3分鐘不活動即判定休眠（180,000 毫秒）
+const IDLE_TIMEOUT = 1200000; // 3分鐘不活動即判定休眠（180,000 毫秒）
 let idleTimer = null;
 let isSleeping = false;
 let firebaseListeners = { small: null, medium: null };
