@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智慧接駁車 GPS 系統 - 司機端</title>
+
+<style>
+body{
+    font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background:#f0f0f0;
+    padding:30px;
+    text-align:center;
+}
+.card{
+    background:white;
+    max-width:650px;
+    margin:auto;
+    padding:30px;
+    border-radius:20px;
+    box-shadow:0 4px 15px rgba(0,0,0,0.1);
+}
+.btn-group {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin: 20px 0;
+}
+button{
+    flex: 1;
+    max-width: 180px;
+    padding: 15px 20px;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: bold;
+    transition: all 0.2s ease;
+}
+.small{
+    background:#BBDEFB;
+    color:#1565C0;
+    border: 2px solid transparent;
+}
+.medium{
+    background:#C8E6C9;
+    color:#2E7D32;
+    border: 2px solid transparent;
+}
+button.active-small {
+    background: #1565C0;
+    color: white;
+    box-shadow: 0 0 12px rgba(21, 101, 192, 0.5);
+}
+button.active-medium {
+    background: #2E7D32;
+    color: white;
+    box-shadow: 0 0 12px rgba(46, 125, 50, 0.5);
+}
+#status{
+    margin-top:25px;
+    font-size:24px;
+    font-weight:bold;
+    color: #555;
+}
+#direction{
+    margin-top:15px;
+    font-size:22px;
+    font-weight:bold;
+    color: #e53935;
+}
+.info-box {
+    margin-top: 25px;
+    background: #f9f9f9;
+    padding: 15px;
+    border-radius: 10px;
+    text-align: left;
+    font-size: 15px;
+    line-height: 1.6;
+    border: 1px solid #e0e0e0;
+}
+</style>
+</head>
+<body>
+
+<div class="card">
+    <h2>🚐 研華接駁車司機回報端</h2>
+    <p style="color:#666;">請在上車出發前，點選您今日駕駛的車型：</p>
+    
+    <div class="btn-group">
+        <button id="btn-small" class="small">🚗 駕駛小巴</button>
+        <button id="btn-medium" class="medium">🚌 駕駛中巴</button>
+    </div>
+
+    <div id="status">⚪ 尚未選擇車型</div>
+    <div id="direction">方向：--</div>
+
+    <div class="info-box">
+        <strong>系統即時狀態：</strong><br>
+        • 目前緯度：<span id="ui-lat">--</span><br>
+        • 目前經度：<span id="ui-lng">--</span><br>
+        • 定位精準度：<span id="ui-acc">--</span>
+    </div>
+</div>
+
+<script type="module">
+// 🎯【新增】引入了 update 與 onDisconnect 來處理瞬間離線
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, set, update, onDisconnect } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+const firebaseConfig = {
+    apiKey: "AIzaSyDxDD9jZA25Hk19HF0UUo0f3ZiEWv1azuk",
+    authDomain: "advantech-shuttle-tracker.firebaseapp.com",
+    databaseURL: "https://advantech-shuttle-tracker-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "advantech-shuttle-tracker",
+    storageBucket: "advantech-shuttle-tracker.firebasestorage.app",
+    messagingSenderId: "749819334514",
+    appId: "1:749819334514:web:582850faa8216c5b7d57eb"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const ADVANTECH = { lat: 25.057506, lng: 121.381707 }; 
+const A8 = { lat: 25.0606478, lng: 121.370454 };      
+
+let mySessionId = localStorage.getItem("shuttle_device_id");
+if (!mySessionId) {
+    mySessionId = "dev_" + Math.random().toString(36).substring(2, 10);
+    localStorage.setItem("shuttle_device_id", mySessionId);
+}
+
+let selectedType = null; 
+let currentDirection = "unknown";
+let pendingDirection = "unknown";
+let stableCount = 0;
+
+let lastGoodLat = null;
+let lastGoodLng = null;
+let watchId = null;
+
+// 儲存目前正在被 onDisconnect 監聽的 Reference
+let currentDisconnectRef = null;
+
+document.getElementById("btn-small").addEventListener("click", () => selectBus("small"));
+document.getElementById("btn-medium").addEventListener("click", () => selectBus("medium"));
+
+// 🎯【保險 1】：網頁被關閉或重新整理前，主動送出離線訊號 (timestamp: 0)
+window.addEventListener("beforeunload", () => {
+    if (selectedType) {
+        const busRef = ref(db, "shuttle/" + selectedType);
+        update(busRef, { timestamp: 0 });
+    }
+});
+
+function selectBus(type) {
+    // 🎯 換車時，先把原本的車設定為離線
+    if (selectedType && selectedType !== type) {
+        const oldBusRef = ref(db, "shuttle/" + selectedType);
+        update(oldBusRef, { timestamp: 0 });
+        if (currentDisconnectRef) {
+            currentDisconnectRef.cancel(); // 取消前一輛車的伺服器代打遺言
+        }
+    }
+
+    if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+    }
+
+    selectedType = type;
+    
+    if(type === 'small') {
+        document.getElementById("btn-small").className = "active-small";
+        document.getElementById("btn-medium").className = "medium";
+    } else {
+        document.getElementById("btn-medium").className = "active-medium";
+        document.getElementById("btn-small").className = "small";
+    }
+
+    currentDirection = "unknown";
+    pendingDirection = "unknown";
+    stableCount = 0;
+    lastGoodLat = null;
+    lastGoodLng = null;
+
+    document.getElementById("status").innerHTML = "🟡 正在請求 GPS 定位權限...";
+    document.getElementById("direction").innerHTML = "方向：❓ 判斷中";
+    
+    startTracking(type);
+}
+
+function startTracking(runningType) {
+    if (!navigator.geolocation) {
+        document.getElementById("status").innerHTML = "🔴 錯誤：您的瀏覽器不支援 GPS 定位";
+        return;
+    }
+
+    const busRef = ref(db, "shuttle/" + runningType);
+
+    // 🎯【保險 2】：Firebase 伺服器級守衛
+    // 告訴 Firebase 伺服器：「如果我的網路斷線或無預警死機，請立刻幫我把時間戳記歸零」
+    currentDisconnectRef = onDisconnect(busRef);
+    currentDisconnectRef.update({ timestamp: 0 });
+
+    const currentWatchId = navigator.geolocation.watchPosition(
+        (pos) => {
+            if (runningType !== selectedType) {
+                navigator.geolocation.clearWatch(currentWatchId);
+                return; 
+            }
+
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            const accuracy = Math.round(pos.coords.accuracy);
+            const now = Date.now();
+
+            if (accuracy > 100) {
+                return; 
+            }
+
+            detectDirection(lat, lng);
+
+            lastGoodLat = lat;
+            lastGoodLng = lng;
+
+            // 持續更新最新座標
+            set(busRef, {
+                lat: lat,
+                lng: lng,
+                direction: currentDirection,
+                accuracy: accuracy,
+                timestamp: now,
+                sessionId: mySessionId
+            });
+
+            document.getElementById("status").innerHTML = "🟢 系統即時連線追蹤中";
+            
+            let dirText = "❓ 判斷中";
+            if(currentDirection === "toA8") dirText = "➡️ 前往 A8 機捷站";
+            if(currentDirection === "toAdvantech") dirText = "⬅️ 返回研華林口園區";
+            document.getElementById("direction").innerHTML = "方向：" + dirText;
+
+            document.getElementById("ui-lat").innerHTML = lat.toFixed(6);
+            document.getElementById("ui-lng").innerHTML = lng.toFixed(6);
+            document.getElementById("ui-acc").innerHTML = accuracy + " 公尺";
+        },
+        (error) => {
+            if (runningType === selectedType) {
+                document.getElementById("status").innerHTML = "🔴 定位失敗：" + error.message;
+            }
+        },
+        {
+            enableHighAccuracy: true,
+            maximumAge: 0,
+            timeout: 10000
+        }
+    );
+
+    watchId = currentWatchId;
+}
+
+function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371000; 
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+}
+
+function updateDirection(newDirection) {
+    if (newDirection === pendingDirection) {
+        stableCount++;
+    } else {
+        pendingDirection = newDirection;
+        stableCount = 1;
+    }
+    if (stableCount >= 2) {
+        currentDirection = pendingDirection;
+    }
+}
+
+function detectDirection(lat, lng) {
+    const distA8 = getDistance(lat, lng, A8.lat, A8.lng);
+    const distAdvantech = getDistance(lat, lng, ADVANTECH.lat, ADVANTECH.lng);
+
+    if (distAdvantech < 20) {
+        updateDirection("toA8");
+        return;
+    }
+    
+    if (distA8 < 30) {
+        updateDirection("toAdvantech");
+        return;
+    }
+
+    if (lastGoodLat === null) {
+        if (distAdvantech < distA8) {
+            updateDirection("toA8");
+        } else {
+            updateDirection("toAdvantech");
+        }
+        return;
+    }
+
+    const lastDistToAdvantech = getDistance(lastGoodLat, lastGoodLng, ADVANTECH.lat, ADVANTECH.lng);
+    const nowDistToAdvantech = distAdvantech;
+    const movingDiff = nowDistToAdvantech - lastDistToAdvantech; 
+
+    if (distAdvantech < 150 && movingDiff > 5) {
+        updateDirection("toA8"); 
+        return;
+    }
+
+    const lastDistToA8 = getDistance(lastGoodLat, lastGoodLng, A8.lat, A8.lng);
+    const diffA8 = lastDistToA8 - distA8;
+    if (Math.abs(diffA8) >= 12) {
+        if (diffA8 > 0) {
+            updateDirection("toA8");        
+        } else {
+            updateDirection("toAdvantech"); 
+        }
+    }
+}
+</script>
+
+</body>
+</html>
