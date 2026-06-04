@@ -26,7 +26,15 @@ body{font-family:-apple-system,sans-serif;background:#f4f7f6;padding:20px;color:
 .label{font-size:0.8rem;color:#666;}
 .weather{font-size:1rem;line-height:1.8;}
 
-/* 🎯 班表排版大升級：分離時間與徽章，左右完美對齊 */
+/* 🎯 天氣備註文字的樣式 */
+.weather-note {
+    font-size: 0.85rem; 
+    font-weight: normal; 
+    color: #666; 
+    margin-left: 10px;
+}
+
+/* 班表排版 */
 .schedule-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
 .schedule-column{border:1px solid #ddd;border-radius:10px;padding:15px;}
 .schedule-title{font-weight:bold;margin-bottom:10px;font-size:1.1rem;}
@@ -50,7 +58,7 @@ body{font-family:-apple-system,sans-serif;background:#f4f7f6;padding:20px;color:
 .mrt-countdown-future { color: #2e7d32; font-size: 0.85rem; font-weight: bold; }
 .mrt-empty { color: #999; font-style: italic; font-size: 0.9rem; }
 
-/* 🎯 手機專屬版面微調：縮小間距與字體，避免擠破格子 */
+/* 🎯 手機專屬版面微調：縮小間距與字體、強制斷行天氣備註 */
 @media (max-width: 600px) {
     .mrt-grid { grid-template-columns: 1fr; gap: 12px; }
     .card { padding: 15px; }
@@ -59,11 +67,19 @@ body{font-family:-apple-system,sans-serif;background:#f4f7f6;padding:20px;color:
     .mrt-col-countdown { width: 85px; font-size: 0.8rem; }
     .mrt-countdown-now, .mrt-countdown-future { font-size: 0.75rem; }
     .mrt-dest { font-size: 0.95rem; }
-    /* 班表專屬手機微調 */
+    
     .schedule-grid { gap: 10px; }
     .schedule-column { padding: 10px; }
     .schedule-item { padding: 4px 6px; }
     .bus-note { font-size: 0.7rem; padding: 2px 4px; }
+
+    /* 手機版：天氣備註強制斷行顯示在下方 */
+    .weather-note {
+        display: block;
+        margin-left: 0;
+        margin-top: 4px;
+        line-height: 1.4;
+    }
 }
 
 .footer{text-align:center;color:#999;margin-top:30px;font-size:0.85rem;}
@@ -259,23 +275,23 @@ async function fetchRealWeather() {
 
             if (isHeavyThunderstorm) {
                 rainStatus = "heavy";
-                weatherDescription = `⛈️ 雷暴大雨 ${temp}°C <span style="font-size:0.85rem; font-weight:normal; color:#666; margin-left:10px;">(氣象預警：強降雨不適步行 | 濕度：${humidity}%)</span>`;
+                weatherDescription = `⛈️ 雷暴大雨 ${temp}°C <span class="weather-note">(氣象預警：強降雨不適步行 | 濕度：${humidity}%)</span>`;
             } 
             else if (isModerateRain) {
                 rainStatus = "light"; 
-                weatherDescription = `🌧️ 區域陣雨 ${temp}°C <span style="font-size:0.85rem; font-weight:normal; color:#666; margin-left:10px;">(降雨率：${pop}% | 建議撐傘或視車況搭車)</span>`;
+                weatherDescription = `🌧️ 區域陣雨 ${temp}°C <span class="weather-note">(降雨率：${pop}% | 建議撐傘或視車況搭車)</span>`;
             }
             else if (isDrizzle) {
                 rainStatus = "light"; 
-                weatherDescription = `🌧️ 細雨/毛毛雨 ${temp}°C <span style="font-size:0.85rem; font-weight:normal; color:#666; margin-left:10px;">(降雨率：${pop}% | 體感微濕，適合撐傘步行)</span>`;
+                weatherDescription = `🌧️ 細雨/毛毛雨 ${temp}°C <span class="weather-note">(降雨率：${pop}% | 體感微濕，適合撐傘步行)</span>`;
             } 
             else if ([1, 2, 3].includes(code)) {
                 rainStatus = "none";
-                weatherDescription = `☁️ 多雲/陰天 ${temp}°C <span style="font-size:0.85rem; font-weight:normal; color:#666; margin-left:10px;">(無雨狀態 | 濕度：${humidity}%)</span>`;
+                weatherDescription = `☁️ 多雲/陰天 ${temp}°C <span class="weather-note">(無雨狀態 | 濕度：${humidity}%)</span>`;
             } 
             else {
                 rainStatus = "none";
-                weatherDescription = `☀️ 良好晴天 ${temp}°C <span style="font-size:0.85rem; font-weight:normal; color:#666; margin-left:10px;">(氣候舒適 | 濕度：${humidity}%)</span>`;
+                weatherDescription = `☀️ 良好晴天 ${temp}°C <span class="weather-note">(氣候舒適 | 濕度：${humidity}%)</span>`;
             }
         }
     } catch (err) {
@@ -456,7 +472,7 @@ function updateUIAndCalculations() {
                 decisionStatus.className = "decision-box go-walk";
                 decisionStatus.innerHTML = `建議步行 🚶 (約 ${walkTime} 分鐘)`;
                 document.getElementById("reasoning").innerHTML = rainStatus === "light" 
-                    ? "目前接駁車皆離線。建議參考接駁車班表搭乘或直接步行前往機捷站。"
+                    ? "目前接駁車皆離線。步行快於等車，建議走路前往機捷站。"
                     : "目前所有接駁車未連GPS處於離線狀態，建議參考接駁車班表搭乘或直接步行前往 A8 機捷站。";
             }
         }
@@ -826,7 +842,7 @@ setInterval(() => {
 </script>
 
 <div class="footer">
-    Advantech ESG - 節能減碳從走路開始 ｜ 班表 UI 進階美化版
+    Advantech ESG - 節能減碳從走路開始
 </div>
 </body>
 </html>
