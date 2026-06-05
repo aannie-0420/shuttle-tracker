@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>研華接駁車助手 - 林口園區</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h2 class="title">研華林口園區接駁車助手</h2>
+
+<div id="sleep-notice" class="sleep-banner">
+    ⚠️ 系統已閒置，已中斷連線。
+    <button id="btn-reconnect" class="reconnect-btn">重新連線</button>
+</div>
+
+<div class="card">
+    <div class="card-title">🚶 通勤建議</div>
+    <div id="decision-status" class="decision-box">連線中...</div>
+    <p id="reasoning">正在同步即時巴士與文德路天氣資訊...</p>
+    <div class="stats">
+        <div class="stat-item">
+            <span class="label">等車 + 車程</span>
+            <span id="bus-time" class="time">--</span>
+        </div>
+        <div class="stat-item">
+            <span class="label">步行時間</span>
+            <span id="walk-time" class="time">--</span>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-title">天氣路況 (龜山區樂善里/文德路)</div>
+    <div class="weather">
+        <div id="weather-text" style="font-weight: bold; font-size: 1.1rem;">正在取得即時氣象...</div>
+        <div id="traffic-text">路況資訊載入中...</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-title">即時車輛動態</div>
+	<div id="small-bus" class="bus-card">
+        <div class="bus-header">
+            <div class="bus-name">🚗小巴</div>
+            <div id="small-status" class="offline">連線中</div>
+        </div>
+        <div>方向：<span id="small-direction">--</span></div>
+        <div>預估到園區：<span id="small-eta">--</span></div> 
+    </div>
+    <div id="medium-bus" class="bus-card">
+        <div class="bus-header">
+            <div class="bus-name">🚌中巴</div>
+            <div id="medium-status" class="offline">連線中</div>
+        </div>
+        <div>方向：<span id="medium-direction">--</span></div>
+        <div>預估到園區：<span id="medium-eta">--</span></div> 
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-title">A8機捷最近班次</div>
+    <div class="mrt-grid">
+        <div class="mrt-column">
+            <div class="mrt-dest">🚆 北上：往 台北車站 (TPE)</div>
+            <div id="mrt-to-tpe-list" class="mrt-list">載入中...</div>
+        </div>
+        <div class="mrt-column">
+            <div class="mrt-dest">🚆 南下：往 桃園機場/中壢 (AP)</div>
+            <div id="mrt-to-ap-list" class="mrt-list">載入中...</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-title">接駁車班表</div>
+    <div class="schedule-grid">
+        <div class="schedule-column" id="schedule-small-col">
+            <div class="schedule-title">🚗小巴</div>
+            <div class="schedule-item" data-time="10:20"><span class="bus-time-text">10:20</span></div>
+            <div class="schedule-item" data-time="11:20"><span class="bus-time-text">11:20</span></div>
+            <div class="schedule-item" data-time="12:30"><span class="bus-time-text">12:30</span></div>
+            <div class="schedule-item" data-time="13:35"><span class="bus-time-text">13:35</span></div>
+            <div class="schedule-item" data-time="14:35"><span class="bus-time-text">14:35</span></div>
+            <div class="schedule-item" data-time="15:35"><span class="bus-time-text">15:35</span></div>
+            <div class="schedule-item" data-time="18:45"><span class="bus-time-text">18:45</span></div>
+            <div class="schedule-item" data-time="19:15"><span class="bus-time-text">19:15</span></div>
+            <div class="schedule-item" data-time="19:40"><span class="bus-time-text">19:40</span></div>
+        </div>
+        <div class="schedule-column" id="schedule-medium-col">
+            <div class="schedule-title">🚌中巴</div>
+            <div class="schedule-item" data-time="17:10"><span class="bus-time-text">17:10</span></div>
+            <div class="schedule-item" data-time="17:40"><span class="bus-time-text">17:40</span><span class="bus-note">加開</span></div>
+            <div class="schedule-item" data-time="17:55"><span class="bus-time-text">17:55</span><span class="bus-note">調整</span></div>
+            <div class="schedule-item" data-time="18:15"><span class="bus-time-text">18:15</span></div>
+            <div class="schedule-item" data-time="18:35"><span class="bus-time-text">18:35</span></div>
+            <div class="schedule-item" data-time="19:00"><span class="bus-time-text">19:00</span></div>
+            <div class="schedule-item" data-time="19:30"><span class="bus-time-text">19:30</span><span class="bus-note">不停A8</span></div>
+            <div class="schedule-item" data-time="20:10"><span class="bus-time-text">20:10</span><span class="bus-note">不停A8</span></div>
+            <div class="schedule-item" data-time="20:35"><span class="bus-time-text">20:35</span><span class="bus-note">不停A8</span></div>
+            <div class="schedule-item" data-time="20:50"><span class="bus-time-text">20:50</span><span class="bus-note">不停A8</span></div>
+        </div>
+    </div>
+</div>
+
+<!-- 🌟 引入剛剛獨立出來的捷運班表，這種方式不會被瀏覽器阻擋！ -->
+<script src="mrtData.js"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBYOfPOfRdXpRYxiKTGRMI4a5qTi6e1PFE&libraries=geometry"></script>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, onValue, off } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+const firebaseConfig = {
+    apiKey: "AIzaSyDxDD9jZA25Hk19HF0UUo0f3ZiEWv1azuk",
+    databaseURL: "https://advantech-shuttle-tracker-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "advantech-shuttle-tracker",
+    appId: "1:749819334514:web:582850faa8216c5b7d57eb"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const LIN_KOU_CAMPUS = { lat: 25.057506, lng: 121.381707 }; 
+const A8_STATION_GPS = { lat: 25.0606478, lng: 121.370454 };
+
+let busData = { small: null, medium: null };
+let busETAs = { small: null, medium: null }; 
+
+let rainStatus = "none"; 
+let weatherDescription = "偵測中...";
+
+const IDLE_TIMEOUT = 180000; 
+let idleTimer = null;
+let isSleeping = false;
+let firebaseListeners = { small: null, medium: null };
+
+const IS_TEST_MODE = new URLSearchParams(window.location.search).get("test") === "1";
+function isServiceActive() {
+    if (IS_TEST_MODE) return true;
+    const hour = new Date().getHours();
+    return hour >= 17 && hour < 19; 
+}
+
+async function fetchRealWeather() {
+    if (isSleeping) return; 
+    try {
+        const res = await fetch("https://api.open-meteo.com/v1/forecast?latitude=25.0443&longitude=121.3705&current=temperature_2m,relative_humidity_2m,weather_code&hourly=precipitation_probability");
+        const json = await res.json();
+        
+        if (json && json.current) {
+            const temp = Math.round(json.current.temperature_2m); 
+            const humidity = json.current.relative_humidity_2m;
+            const code = json.current.weather_code; 
+            
+            let pop = 0; 
+            if (json.hourly && json.hourly.precipitation_probability) {
+                const currentHour = new Date().getHours();
+                pop = json.hourly.precipitation_probability[currentHour] || 0;
+            }
+
+            const isHeavyThunderstorm = [65, 81, 82, 95, 96, 99].includes(code);
+            const isModerateRain = [61, 63, 80].includes(code);
+            const isDrizzle = [51, 53, 55].includes(code);
+
+            if (isHeavyThunderstorm) {
+                rainStatus = "heavy";
+                weatherDescription = `⛈️ 雷暴大雨 ${temp}°C <span class="weather-note">(氣象預警：強降雨不適步行 | 濕度：${humidity}%)</span>`;
+            } 
+            else if (isModerateRain) {
+                rainStatus = "light"; 
+                weatherDescription = `🌧️ 區域陣雨 ${temp}°C <span class="weather-note">(降雨率：${pop}% | 建議撐傘或視車況搭車)</span>`;
+            }
+            else if (isDrizzle) {
+                rainStatus = "light"; 
+                weatherDescription = `🌧️ 細雨/毛毛雨 ${temp}°C <span class="weather-note">(降雨率：${pop}% | 體感微濕，適合撐傘步行)</span>`;
+            } 
+            else if ([1, 2, 3].includes(code)) {
+                rainStatus = "none";
+                weatherDescription = `☁️ 多雲/陰天 ${temp}°C <span class="weather-note">(無雨狀態 | 濕度：${humidity}%)</span>`;
+            } 
+            else {
+                rainStatus = "none";
+                weatherDescription = `☀️ 良好晴天 ${temp}°C <span class="weather-note">(氣候舒適 | 濕度：${humidity}%)</span>`;
+            }
+        }
+    } catch (err) {
+        console.error("無法取得即時天氣數據:", err);
+        rainStatus = "none"; 
+        weatherDescription = `⚠️ 氣象觀測連線暫停 (採用標準決策)`;
+    }
+    
+    const weatherEl = document.getElementById("weather-text"); 
+    if (weatherEl) {
+        weatherEl.innerHTML = weatherDescription;
+    }
+    updateUIAndCalculations();
+}
+
+function renderMrtAndScheduleHighlights(currentStr, nowTime) {
+    const currentMinutes = nowTime.getHours() * 60 + nowTime.getMinutes();
+
+    function getCountdownTag(mrtTimeStr) {
+        if (!mrtTimeStr) return "";
+        const parts = mrtTimeStr.split(":");
+        const mrtMinutes = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+        const diff = mrtMinutes - currentMinutes;
+        
+        if (diff < 0) {
+            return `<span class="mrt-col-countdown mrt-countdown-now" style="color:#777; animation:none;">已發車 🔄</span>`;
+        } else if (diff <= 2) {
+            return `<span class="mrt-col-countdown mrt-countdown-now">列車進站 ⚠️</span>`;
+        } else if (diff <= 5) {
+            return `<span class="mrt-col-countdown mrt-countdown-now">即將進站 ⚠️</span>`;
+        } else {
+            return `<span class="mrt-col-countdown mrt-countdown-future">還有 ${diff} 分鐘</span>`;
+        }
+    }
+
+    function getLatestFiveShuttles(timetableArray) {
+        let matches = timetableArray.filter(m => m.time && m.time >= currentStr);
+        if (matches.length === 0) {
+            return timetableArray.slice(-5);
+        }
+        return matches.slice(0, 5);
+    }
+
+    // 🌟 從全域變數 window 抓取捷運時刻表
+    const matchingTPE = getLatestFiveShuttles(window.MRT_TIMETABLE.toTPE);
+    const matchingAP = getLatestFiveShuttles(window.MRT_TIMETABLE.toAP);
+
+    const tpeListContainer = document.getElementById("mrt-to-tpe-list");
+    const apListContainer = document.getElementById("mrt-to-ap-list");
+
+    if (tpeListContainer) {
+        if (matchingTPE.length > 0) {
+            tpeListContainer.innerHTML = matchingTPE.map(m => {
+                const badgeClass = m.type === "直達車" ? "badge-direct" : "badge-normal";
+                const countdownTag = getCountdownTag(m.time);
+                return `<div class="mrt-item"><span class="badge ${badgeClass}">${m.type}</span><span class="mrt-col-time">${m.time}</span>${countdownTag}</div>`;
+            }).join("");
+        } else {
+            tpeListContainer.innerHTML = `<div class="mrt-empty">今日北上暫無班次資料</div>`;
+        }
+    }
+
+    if (apListContainer) {
+        if (matchingAP.length > 0) {
+            apListContainer.innerHTML = matchingAP.map(m => {
+                const badgeClass = m.type === "直達車" ? "badge-direct" : "badge-normal";
+                const countdownTag = getCountdownTag(m.time);
+                return `<div class="mrt-item"><span class="badge ${badgeClass}">${m.type}</span><span class="mrt-col-time">${m.time}</span>${countdownTag}</div>`;
+            }).join("");
+        } else {
+            apListContainer.innerHTML = `<div class="mrt-empty">今日南下暫無班次資料</div>`;
+        }
+    }
+
+    const allItems = document.querySelectorAll(".schedule-item");
+    allItems.forEach(item => item.classList.remove("next-shuttle"));
+
+    let futureShuttles = [];
+    allItems.forEach(item => {
+        const itemTime = item.getAttribute("data-time");
+        if (itemTime && itemTime >= currentStr) {
+            futureShuttles.push({
+                dom: item,
+                time: itemTime
+            });
+        }
+    });
+
+    futureShuttles.sort((a, b) => a.time.localeCompare(b.time));
+
+    const targetCount = Math.min(2, futureShuttles.length);
+    for (let i = 0; i < targetCount; i++) {
+        if (futureShuttles[i] && futureShuttles[i].dom) {
+            futureShuttles[i].dom.classList.add("next-shuttle");
+        }
+    }
+}
+
+function updateUIAndCalculations() {
+    const nowTime = new Date();
+    const hh = String(nowTime.getHours()).padStart(2, '0');
+    const mm = String(nowTime.getMinutes()).padStart(2, '0');
+    const currentStr = `${hh}:${mm}`;
+
+    renderMrtAndScheduleHighlights(currentStr, nowTime);
+
+    const serviceActive = isServiceActive();
+
+    if (!serviceActive) {
+        stopFirebaseListeners();
+
+        document.getElementById("small-status").innerHTML = "⏸️ 非服務時間";
+        document.getElementById("small-status").className = "offline";
+        document.getElementById("small-eta").innerHTML = "--";
+        document.getElementById("small-direction").innerHTML = "--";
+
+        document.getElementById("medium-status").innerHTML = "⏸️ 非服務時間";
+        document.getElementById("medium-status").className = "offline";
+        document.getElementById("medium-eta").innerHTML = "--";
+        document.getElementById("medium-direction").innerHTML = "--";
+
+        document.getElementById("traffic-text").innerHTML = "⏸️ 目前為非接駁服務時段 (開放時間: 17:00-19:00)。";
+
+        let walkTime = 20;
+        if (nowTime.getHours() >= 17) walkTime = 24;
+        if (rainStatus === "heavy") walkTime = 25;
+
+        const decisionStatus = document.getElementById("decision-status");
+        
+        if (decisionStatus) {
+            if (rainStatus === "heavy") {
+                decisionStatus.className = "decision-box wait-bus";
+                decisionStatus.innerHTML = "建議等車 🌧️ (非服務時段)";
+                document.getElementById("reasoning").innerHTML = "目前非接駁車服務時間。因外頭雨勢較大，建議參考下方班表於室內等候。";
+            } else {
+                decisionStatus.className = "decision-box go-walk";
+                decisionStatus.innerHTML = `建議步行 🚶 (約 ${walkTime} 分鐘)`;
+                document.getElementById("reasoning").innerHTML = rainStatus === "light" 
+                    ? "目前為非服務時間，外頭有輕微小雨，建議撐傘走路前往機捷站。"
+                    : "目前為非服務時間，同仁可直接步行前往 A8 機捷站。";
+            }
+        }
+        
+        document.getElementById("bus-time").innerHTML = "--";
+        document.getElementById("walk-time").innerHTML = walkTime + " min";
+        return; 
+    }
+
+    startFirebaseListeners(); 
+
+    const now = Date.now();
+    const smallBusActive = busData.small && busData.small.lat && busData.small.lng && (now - busData.small.timestamp < 300000);
+    const mediumBusActive = busData.medium && busData.medium.lat && busData.medium.lng && (now - busData.medium.timestamp < 300000);
+
+    if (!smallBusActive && !mediumBusActive) {
+        document.getElementById("small-status").innerHTML = "🔴 離線";
+        document.getElementById("small-status").className = "offline";
+        document.getElementById("small-eta").innerHTML = "--";
+        document.getElementById("small-direction").innerHTML = "--";
+
+        document.getElementById("medium-status").innerHTML = "🔴 離線";
+        document.getElementById("medium-status").className = "offline";
+        document.getElementById("medium-eta").innerHTML = "--";
+        document.getElementById("medium-direction").innerHTML = "--";
+
+        document.getElementById("traffic-text").innerHTML = "🚌 離線期間暫停路況追蹤。";
+
+        let walkTime = 20;
+        if (nowTime.getHours() >= 17) walkTime = 24;
+
+        const decisionStatus = document.getElementById("decision-status");
+        
+        if (decisionStatus) {
+            if (rainStatus === "heavy") {
+                decisionStatus.className = "decision-box wait-bus";
+                decisionStatus.innerHTML = "建議等車 🌧️";
+                document.getElementById("reasoning").innerHTML = "目前接駁車皆離線。建議參考下方班表等接駁車。";
+            } else {
+                decisionStatus.className = "decision-box go-walk";
+                decisionStatus.innerHTML = `建議步行 🚶 (約 ${walkTime} 分鐘)`;
+                document.getElementById("reasoning").innerHTML = rainStatus === "light" 
+                    ? "目前接駁車皆離線。步行快於等車，建議走路前往機捷站。"
+                    : "目前所有接駁車未連GPS處於離線狀態，建議參考接駁車班表搭乘或直接步行前往 A8 機捷站。";
+            }
+        }
+        
+        document.getElementById("bus-time").innerHTML = "--";
+        document.getElementById("walk-time").innerHTML = walkTime + " min";
+        return; 
+    } else {
+        const trafficEl = document.getElementById("traffic-text");
+        if (trafficEl.innerHTML.includes("離線") || trafficEl.innerHTML.includes("非接駁服務時段")) {
+            trafficEl.innerHTML = "🚗 路況資訊即時更新中...";
+        }
+    }
+
+    if (busData.small) updateBusUI("small", busData.small, busETAs.small ? busETAs.small.etaToCampus : null);
+    if (busData.medium) updateBusUI("medium", busData.medium, busETAs.medium ? busETAs.medium.etaToCampus : null);
+
+    updateBestOption();
+}
+
+function isVehicleOutofBounds(lat, lng) {
+    if (!google.maps.geometry) return false; 
+    const busLoc = new google.maps.LatLng(lat, lng);
+    const campusLoc = new google.maps.LatLng(LIN_KOU_CAMPUS.lat, LIN_KOU_CAMPUS.lng);
+    const distance = google.maps.geometry.spherical.computeDistanceBetween(busLoc, campusLoc);
+    return distance > 5000; 
+}
+
+function updateBusUI(type, data, eta) {
+    const now = Date.now();
+    const isOnline = data && (now - data.timestamp) < 300000;
+    const statusEl = document.getElementById(type + "-status");
+    const directionEl = document.getElementById(type + "-direction");
+    const etaEl = document.getElementById(type + "-eta");
+
+    if (!statusEl || !directionEl || !etaEl) return;
+
+    if (!isOnline) {
+        statusEl.innerHTML = "🔴 離線";
+        statusEl.className = "offline";
+        directionEl.innerHTML = "--";
+        etaEl.innerHTML = "--";
+        return;
+    }
+
+    if (isVehicleOutofBounds(data.lat, data.lng)) {
+        statusEl.innerHTML = "⚠️ 路線偏離異常";
+        statusEl.className = "route-error";
+        directionEl.innerHTML = "未知 (異常定位點)";
+        etaEl.innerHTML = `<span style="color:red;">路線偏離</span>`;
+        return;
+    }
+
+    statusEl.innerHTML = "🟢 在線";
+    statusEl.className = "online";
+
+    let direction = "🔍 系統定位中 / 行駛中";
+    let etaDisplay = (eta !== null && eta !== undefined) ? eta + " 分鐘" : "計算中...";
+    
+    let distanceToCampus = 9999;
+    let distanceToA8 = 9999;
+    
+    if (google.maps.geometry) {
+        const busLoc = new google.maps.LatLng(data.lat, data.lng);
+        const campusLoc = new google.maps.LatLng(LIN_KOU_CAMPUS.lat, LIN_KOU_CAMPUS.lng);
+        const a8Loc = new google.maps.LatLng(A8_STATION_GPS.lat, A8_STATION_GPS.lng); 
+        
+        distanceToCampus = google.maps.geometry.spherical.computeDistanceBetween(busLoc, campusLoc);
+        distanceToA8 = google.maps.geometry.spherical.computeDistanceBetween(busLoc, a8Loc);
+    }
+
+    if (data.direction === "toA8") {
+        if (distanceToCampus < 30) {
+            direction = "📍 停靠在研華園區";
+            etaDisplay = "園區待發";
+        } else {
+            direction = "➡️ 前往A8機捷站";
+        }
+    } else if (data.direction === "toAdvantech") {
+        if (distanceToA8 < 30) {
+            direction = "📍 停靠在 A8 機捷站";
+            etaDisplay = "A8 站待發";
+        } else {
+            direction = "⬅️ 返回研華園區";
+            etaDisplay = "接駁車返回中";
+        }
+    } else {
+        direction = "🚌 行駛中 (方向確認中)";
+    }
+
+    directionEl.innerHTML = direction;
+    etaEl.innerHTML = etaDisplay;
+}
+
+function renderDecision(busTime, walkTime) {
+    const threshold = 2;
+    const display = document.getElementById("decision-status");
+    const reason = document.getElementById("reasoning");
+
+    if (!display || !reason) return;
+
+    document.getElementById("bus-time").innerHTML = busTime !== null ? busTime + " min" : "--";
+    document.getElementById("walk-time").innerHTML = walkTime + " min";
+
+    if (isSleeping) {
+        display.innerHTML = "💤 系統休眠中";
+        display.className = "decision-box warning";
+        reason.innerHTML = "已暫停即時數據。請點擊上方按鈕「重新連線」以回復動態追蹤。";
+        return;
+    }
+
+    if (busTime === null) {
+        if (rainStatus === "heavy") {
+            display.innerHTML = "建議等車 🌧️";
+            display.className = "decision-box wait-bus";
+            reason.innerHTML = "目前下雨不適合步行。建議等候固定班表接駁車";
+        } else {
+            display.innerHTML = "建議步行 🚶";
+            display.className = "decision-box go-walk";
+            reason.innerHTML = rainStatus === "light" 
+                ? "目前車輛狀態待定，建議直接步行前往機捷站"
+                : "目前尚無行駛中車輛即時估時，建議同仁直接步行前往 A8";
+        }
+        return;
+    }
+
+    if (rainStatus === "heavy") {
+        display.innerHTML = "建議等車 🚌";
+        display.className = "decision-box wait-bus";
+        reason.innerHTML = `目前下雨，雖接駁車預估需等候 ${busTime} 分鐘，但搭車可避免淋雨風險。`;
+    } else if (busTime > walkTime + threshold) {
+        display.innerHTML = "建議步行 🚶";
+        display.className = "decision-box go-walk";
+        reason.innerHTML = rainStatus === "light"
+            ? `搭車等候需 ${busTime} 分鐘（走路僅 ${walkTime} 分鐘），建議步行較快！`
+            : `當前路況搭車需 ${busTime} 分鐘，步行只需 ${walkTime} 分鐘較快。`;
+    } else {
+        display.innerHTML = "建議等車 🚌";
+        display.className = "decision-box wait-bus";
+        reason.innerHTML = `目前接駁車預估總時間約 ${busTime} 分鐘，快於或接近步行時間，建議搭乘。`;
+    }
+}
+
+function updateBestOption() {
+    const now = Date.now();
+    let validCommuteTimes = [];
+
+    let finalSmall = busData.small;
+    let finalMedium = busData.medium;
+
+    if (finalSmall && finalMedium && finalSmall.sessionId === finalMedium.sessionId) {
+        if (finalMedium.timestamp > finalSmall.timestamp) finalSmall = null;
+        else finalMedium = null;
+    }
+
+    if (finalSmall && (now - finalSmall.timestamp) < 300000 && !isVehicleOutofBounds(finalSmall.lat, finalSmall.lng)) {
+        if (busETAs.small && busETAs.small.totalCommute !== null) validCommuteTimes.push(busETAs.small.totalCommute);
+    }
+    if (finalMedium && (now - finalMedium.timestamp) < 300000 && !isVehicleOutofBounds(finalMedium.lat, finalMedium.lng)) {
+        if (busETAs.medium && busETAs.medium.totalCommute !== null) validCommuteTimes.push(busETAs.medium.totalCommute);
+    }
+
+    let walkTime = 20;
+    const hour = new Date().getHours();
+    if (hour >= 17) walkTime = 24; 
+    if (rainStatus === "heavy") walkTime = 25; 
+
+    if (isSleeping || validCommuteTimes.length === 0) {
+        const anyBusOnline = (finalSmall && (now - finalSmall.timestamp) < 300000) || (finalMedium && (now - finalMedium.timestamp) < 300000);
+        if (anyBusOnline && !isSleeping) {
+            renderDecision(15, walkTime); 
+        } else {
+            renderDecision(null, walkTime);
+        }
+        return;
+    }
+
+    const bestCommute = Math.min(...validCommuteTimes);
+    renderDecision(bestCommute, walkTime);
+}
+
+function calculateETA(bus, callback) {
+    if (isSleeping || !bus || isVehicleOutofBounds(bus.lat, bus.lng)) {
+        callback(null); 
+        return; 
+    }
+
+    let defaultShuttleMin = 15; 
+
+    let distanceToCampus = 999;
+    let distanceToA8 = 999;
+    if (google.maps.geometry) {
+        const busLoc = new google.maps.LatLng(bus.lat, bus.lng);
+        const campusLoc = new google.maps.LatLng(LIN_KOU_CAMPUS.lat, LIN_KOU_CAMPUS.lng);
+        const a8Loc = new google.maps.LatLng(A8_STATION_GPS.lat, A8_STATION_GPS.lng);
+        distanceToCampus = google.maps.geometry.spherical.computeDistanceBetween(busLoc, campusLoc);
+        distanceToA8 = google.maps.geometry.spherical.computeDistanceBetween(busLoc, a8Loc);
+    }
+
+    const service = new google.maps.DistanceMatrixService();
+    const effectiveDirection = (bus.direction === "unknown") ? "toA8" : (bus.direction || "toA8");
+
+    if (effectiveDirection === "toA8") {
+        if (distanceToCampus < 30) {
+            document.getElementById("traffic-text").innerHTML = `🚗 車輛停靠於園區待發 (預估單趟車程約 ${defaultShuttleMin} 分鐘)。`;
+            callback({ etaToCampus: 0, totalCommute: defaultShuttleMin });
+            return;
+        }
+
+        service.getDistanceMatrix({
+            origins: [{ lat: bus.lat, lng: bus.lng }, A8_STATION_GPS, LIN_KOU_CAMPUS],
+            destinations: [A8_STATION_GPS, LIN_KOU_CAMPUS],
+            travelMode: "DRIVING"
+        }, (response, status) => {
+            if (status !== "OK") {
+                document.getElementById("traffic-text").innerHTML = `🚗 暫時無法連接導航服務 (預估車程約 10-15 分鐘)。`;
+                callback({ etaToCampus: defaultShuttleMin, totalCommute: defaultShuttleMin * 2 });
+                return;
+            }
+            try {
+                const minBusToA8 = Math.round(response.rows[0].elements[0].duration.value / 60);
+                const minA8ToCampus = Math.round(response.rows[1].elements[1].duration.value / 60);
+                const minCampusToA8 = Math.round(response.rows[2].elements[0].duration.value / 60);
+
+                const etaToCampus = minBusToA8 + minA8ToCampus;
+                const totalCommute = etaToCampus + minCampusToA8;
+
+                document.getElementById("traffic-text").innerHTML = `🚗 目前園區至 A8 即時車程約為 ${minCampusToA8} 分鐘。`;
+                callback({ etaToCampus, totalCommute });
+            } catch (err) {
+                callback({ etaToCampus: defaultShuttleMin, totalCommute: defaultShuttleMin * 2 });
+            }
+        });
+    } 
+    else if (effectiveDirection === "toAdvantech") {
+        if (distanceToA8 < 30) {
+            document.getElementById("traffic-text").innerHTML = `🚗 車輛停靠於 A8 待發 (預估返回車程約 ${defaultShuttleMin} 分鐘)。`;
+            // 🌟 修正隱藏 Bug：從 A8 回來 15 分鐘 + 再去 A8 需要 15 分鐘，所以是乘上 2
+            callback({ etaToCampus: defaultShuttleMin, totalCommute: defaultShuttleMin * 2 });
+            return;
+        }
+
+        service.getDistanceMatrix({
+            origins: [{ lat: bus.lat, lng: bus.lng }, LIN_KOU_CAMPUS],
+            destinations: [LIN_KOU_CAMPUS, A8_STATION_GPS],
+            travelMode: "DRIVING"
+        }, (response, status) => {
+            if (status !== "OK") {
+                document.getElementById("traffic-text").innerHTML = `🚗 暫時無法連接導航服務。`;
+                callback({ etaToCampus: defaultShuttleMin, totalCommute: defaultShuttleMin * 2 });
+                return;
+            }
+            try {
+                const minBusToCampus = Math.round(response.rows[0].elements[0].duration.value / 60);
+                const minCampusToA8 = Math.round(response.rows[1].elements[1].duration.value / 60);
+
+                const etaToCampus = minBusToCampus;
+                const totalCommute = etaToCampus + minCampusToA8;
+
+                document.getElementById("traffic-text").innerHTML = `🚗 目前園區至 A8 即時車程約為 ${minCampusToA8} 分鐘。`;
+                callback({ etaToCampus, totalCommute });
+            } catch (err) {
+                callback({ etaToCampus: defaultShuttleMin, totalCommute: defaultShuttleMin * 2 });
+            }
+        });
+    } else {
+        document.getElementById("traffic-text").innerHTML = `🚗 車輛行駛中，方向與路況即時計算中...`;
+        callback({ etaToCampus: defaultShuttleMin, totalCommute: defaultShuttleMin * 2 });
+    }
+}
+
+let isFirebaseListening = false;
+
+function startFirebaseListeners() {
+    if (isSleeping || isFirebaseListening) return;
+    
+    isFirebaseListening = true;
+
+    firebaseListeners.small = onValue(ref(db, "shuttle/small"), (snap) => {
+        const data = snap.val();
+        busData.small = data;
+
+        if (busData.small && busData.medium && 
+            busData.small.sessionId === busData.medium.sessionId && 
+            busData.medium.timestamp > busData.small.timestamp) {
+            busData.small = null; 
+        }
+
+        calculateETA(busData.small, (etaObj) => {
+            busETAs.small = etaObj; 
+            updateUIAndCalculations(); 
+        });
+    });
+
+    firebaseListeners.medium = onValue(ref(db, "shuttle/medium"), (snap) => {
+        const data = snap.val();
+        busData.medium = data;
+
+        if (busData.small && busData.medium && 
+            busData.small.sessionId === busData.medium.sessionId && 
+            busData.small.timestamp > busData.medium.timestamp) {
+            busData.medium = null; 
+        }
+
+        calculateETA(busData.medium, (etaObj) => {
+            busETAs.medium = etaObj; 
+            updateUIAndCalculations(); 
+        });
+    });
+}
+
+function stopFirebaseListeners() {
+    if (!isFirebaseListening) return;
+    
+    if (firebaseListeners.small) off(ref(db, "shuttle/small"));
+    if (firebaseListeners.medium) off(ref(db, "shuttle/medium"));
+    
+    firebaseListeners.small = null;
+    firebaseListeners.medium = null;
+    isFirebaseListening = false;
+    
+    busData = { small: null, medium: null };
+    busETAs = { small: null, medium: null };
+}
+
+function enterSleepMode() {
+    isSleeping = true;
+    stopFirebaseListeners(); 
+
+    document.getElementById("sleep-notice").style.display = "block";
+
+    document.getElementById("small-status").innerHTML = "💤 暫停同步";
+    document.getElementById("small-status").className = "offline sleeping-mask";
+    document.getElementById("medium-status").innerHTML = "💤 暫停同步";
+    document.getElementById("medium-status").className = "offline sleeping-mask";
+    
+    document.getElementById("small-direction").innerHTML = "休眠中";
+    document.getElementById("small-eta").innerHTML = "點擊重新連線";
+    document.getElementById("medium-direction").innerHTML = "休眠中";
+    document.getElementById("medium-eta").innerHTML = "點擊重新連線";
+
+    updateUIAndCalculations();
+}
+
+function resetIdleTimer() {
+    if (isSleeping) return; 
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(enterSleepMode, IDLE_TIMEOUT);
+}
+
+document.getElementById("btn-reconnect").addEventListener("click", () => {
+    isSleeping = false;
+    document.getElementById("sleep-notice").style.display = "none";
+    document.getElementById("decision-status").innerHTML = "連線中...";
+    
+    if (isServiceActive()) {
+        startFirebaseListeners();
+    }
+    fetchRealWeather();
+    resetIdleTimer();
+    updateUIAndCalculations();
+});
+
+window.addEventListener("load", () => {
+    fetchRealWeather();
+    resetIdleTimer();
+    updateUIAndCalculations();
+});
+
+window.addEventListener("click", resetIdleTimer);
+window.addEventListener("mousemove", resetIdleTimer);
+window.addEventListener("scroll", resetIdleTimer);
+window.addEventListener("touchstart", resetIdleTimer);
+
+setInterval(fetchRealWeather, 300000); 
+setInterval(() => {
+    if (!isSleeping) updateUIAndCalculations();
+}, 15000); 
+
+</script>
+
+<div class="footer">
+    Advantech ESG - 節能減碳從走路開始
+</div>
+</body>
+</html>
