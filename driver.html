@@ -40,6 +40,7 @@
 
     const ADVANTECH = { lat: 25.0575, lng: 121.3817 };
 
+    // 計算 ETA 函數
     function calculateETA(lat, lng) {
         const R = 6371;
         const dLat = (ADVANTECH.lat - lat) * Math.PI / 180;
@@ -51,16 +52,30 @@
     }
 
     window.selectBus = (type) => {
+        // 1. 強制重置機制：確保另一台車必定離線
+        update(ref(db, "shuttle/small"), { status: "offline" });
+        update(ref(db, "shuttle/medium"), { status: "offline" });
+
+        // 2. 更新 UI 樣式
         document.getElementById('btn-small').className = (type === 'small') ? 'active-small' : '';
         document.getElementById('btn-medium').className = (type === 'medium') ? 'active-medium' : '';
         document.getElementById('status').innerText = "狀態：📍 啟動定位中...";
         
+        // 3. 開始 GPS 追蹤
         navigator.geolocation.watchPosition((pos) => {
             const { latitude, longitude } = pos.coords;
             const eta = calculateETA(latitude, longitude);
             
-            update(ref(db, "shuttle/" + type), { lat: latitude, lng: longitude, eta: eta, timestamp: Date.now() });
+            // 4. 更新該車型狀態
+            update(ref(db, "shuttle/" + type), { 
+                lat: latitude, 
+                lng: longitude, 
+                eta: eta, 
+                timestamp: Date.now(), 
+                status: "online" 
+            });
             
+            // 5. 更新司機介面資訊
             document.getElementById('status').innerText = "狀態：📍 追蹤中 (" + (type==='small'?'小巴':'中巴') + ")";
             document.getElementById('eta').innerText = "預估抵達園區：" + eta;
             document.getElementById('coords').innerText = "座標：" + latitude.toFixed(4) + ", " + longitude.toFixed(4);
