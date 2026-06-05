@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>智慧接駁車 GPS 系統 - 司機端</title>
-
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBYOfPOfRdXpRYxiKTGRMI4a5qTi6e1PFE"></script>
 <style>
 body{
     font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -57,6 +57,10 @@ button.active-medium {
     color: white;
     box-shadow: 0 0 12px rgba(46, 125, 50, 0.5);
 }
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
 #status{
     margin-top:25px;
     font-size:24px;
@@ -99,21 +103,19 @@ button.active-medium {
         <strong>系統即時狀態：</strong><br>
         • 目前緯度：<span id="ui-lat">--</span><br>
         • 目前經度：<span id="ui-lng">--</span><br>
-        • 定位精準度：<span id="ui-acc">--</span>
+        • 定位精準度：<span id="ui-acc">--</span><br>
+        • 導航估時：<span id="ui-eta">尚未計算</span>
     </div>
 </div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, set } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import { getDatabase, ref, update, onDisconnect } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDD9jZA25Hk19HF0UUo0f3ZiEWv1azuk",
-    authDomain: "advantech-shuttle-tracker.firebaseapp.com",
     databaseURL: "https://advantech-shuttle-tracker-default-rtdb.asia-southeast1.firebasedatabase.app",
     projectId: "advantech-shuttle-tracker",
-    storageBucket: "advantech-shuttle-tracker.firebasestorage.app",
-    messagingSenderId: "749819334514",
     appId: "1:749819334514:web:582850faa8216c5b7d57eb"
 };
 
@@ -123,7 +125,6 @@ const db = getDatabase(app);
 const ADVANTECH = { lat: 25.057506, lng: 121.381707 }; 
 const A8 = { lat: 25.0606478, lng: 121.370454 };      
 
-// 💡【核心改動】利用 localStorage 鎖定這台手機瀏覽器的專屬永久 ID
 let mySessionId = localStorage.getItem("shuttle_device_id");
 if (!mySessionId) {
     mySessionId = "dev_" + Math.random().toString(36).substring(2, 10);
@@ -138,14 +139,142 @@ let stableCount = 0;
 let lastGoodLat = null;
 let lastGoodLng = null;
 let watchId = null;
+let etaInterval = null; 
+let currentDisconnectRef = null;
 
 document.getElementById("btn-small").addEventListener("click", () => selectBus("small"));
 document.getElementById("btn-medium").addEventListener("click", () => selectBus("medium"));
 
+window.addEventListener("beforeunload", () => {
+    if (selectedType) {
+        const busRef = ref(db, "shuttle/" + selectedType);
+        update(busRef, { timestamp: 0, status: "offline" });
+    }
+});
+
+// 🛑 核心功能：19:00 自動下班防呆機制 (Kill Switch)
+function checkAndTriggerKillSwitch(runningType) {
+    const currentHour = new Date().getHours();
+    // 如果時間大於等於 19 點 (代表 19:00 ~ 23:59)
+    if (currentHour >= 19) {
+        if (watchId !== null) {
+            navigator.geolocation.clearWatch(watchId);
+            watchId = null;
+        }
+        if (etaInterval !== null) {
+            clearInterval(etaInterval);
+            etaInterval = null;
+        }
+        
+        const busRef = ref(db, "shuttle/" + runningType);
+        update(busRef, { status: "scheduled", timestamp: Date.now() }); // 轉交給固定班表
+
+        document.getElementById("status").innerHTML = "🌙 服務時段已結束";
+        document.getElementById("status").style.color = "#757575";
+        document.getElementById("direction").innerHTML = "目前切換為非尖峰固定班表";
+        document.getElementById("direction").style.color = "#757575";
+        
+        document.getElementById("btn-small").disabled = true;
+        document.getElementById("btn-medium").disabled = true;
+        
+        selectedType = null;
+        return true;
+    }
+    return false;
+}
+
+// 🌐 核心功能：60秒一次的 Google 即時路況矩陣計算
+function calculateAndPushETA(runningType) {
+    if (!lastGoodLat || !lastGoodLng) return;
+    if (checkAndTriggerKillSwitch(runningType)) return;
+
+    const busRef = ref(db, "shuttle/" + runningType);
+    const distCampus = getDistance(lastGoodLat, lastGoodLng, ADVANTECH.lat, ADVANTECH.lng);
+    const distA8 = getDistance(lastGoodLat, lastGoodLng, A8.lat, A8.lng);
+    const defaultShuttleMin = 15;
+    let effectiveDirection = currentDirection === "unknown" ? "toA8" : currentDirection;
+
+    // 如果車輛在起終點 30 公尺內，直接寫入預設值不呼叫 API (極致省錢)
+    if (effectiveDirection === "toA8" && distCampus < 30) {
+        update(busRef, { etaToCampus: 0, totalCommute: defaultShuttleMin, status: "online", timestamp: Date.now() });
+        document.getElementById("ui-eta").innerHTML = "園區待發中";
+        return;
+    }
+    if (effectiveDirection === "toAdvantech" && distA8 < 30) {
+        update(busRef, { etaToCampus: defaultShuttleMin, totalCommute: defaultShuttleMin * 2, status: "online", timestamp: Date.now() });
+        document.getElementById("ui-eta").innerHTML = "A8站待發中";
+        return;
+    }
+
+    const service = new google.maps.DistanceMatrixService();
+    const busLoc = new google.maps.LatLng(lastGoodLat, lastGoodLng);
+    const campusLoc = new google.maps.LatLng(ADVANTECH.lat, ADVANTECH.lng);
+    const a8Loc = new google.maps.LatLng(A8.lat, A8.lng);
+
+    let request = {
+        travelMode: "DRIVING",
+        // 🌟 重點：掛上現在時間，啟動真實塞車運算！
+        drivingOptions: { departureTime: new Date(), trafficModel: "bestguess" }
+    };
+
+    if (effectiveDirection === "toA8") {
+        request.origins = [busLoc, a8Loc, campusLoc];
+        request.destinations = [a8Loc, campusLoc];
+    } else {
+        request.origins = [busLoc, campusLoc];
+        request.destinations = [campusLoc, a8Loc];
+    }
+
+    service.getDistanceMatrix(request, (response, status) => {
+        if (status === "OK") {
+            try {
+                let etaToCampus = defaultShuttleMin;
+                let totalCommute = defaultShuttleMin * 2;
+                
+                // 優先抓取即時路況 duration_in_traffic
+                const getDuration = (element) => {
+                    return element.duration_in_traffic ? element.duration_in_traffic.value : element.duration.value;
+                };
+
+                if (effectiveDirection === "toA8") {
+                    const minBusToA8 = Math.round(getDuration(response.rows[0].elements[0]) / 60);
+                    const minA8ToCampus = Math.round(getDuration(response.rows[1].elements[1]) / 60);
+                    const minCampusToA8 = Math.round(getDuration(response.rows[2].elements[0]) / 60);
+                    etaToCampus = minBusToA8 + minA8ToCampus;
+                    totalCommute = etaToCampus + minCampusToA8;
+                } else {
+                    const minBusToCampus = Math.round(getDuration(response.rows[0].elements[0]) / 60);
+                    const minCampusToA8 = Math.round(getDuration(response.rows[1].elements[1]) / 60);
+                    etaToCampus = minBusToCampus;
+                    totalCommute = etaToCampus + minCampusToA8;
+                }
+
+                // 🌟 計算完成後，推送結果到 Firebase 給所有乘客看
+                update(busRef, { etaToCampus, totalCommute, status: "online", timestamp: Date.now() });
+                document.getElementById("ui-eta").innerHTML = `等車約 ${etaToCampus}分 | 總通勤約 ${totalCommute}分`;
+            } catch (e) {
+                console.error("解析導航資料失敗", e);
+            }
+        }
+    });
+}
+
 function selectBus(type) {
+    if (checkAndTriggerKillSwitch(type)) return; // 若已經超過 19:00，直接拒絕上班
+
+    if (selectedType && selectedType !== type) {
+        const oldBusRef = ref(db, "shuttle/" + selectedType);
+        update(oldBusRef, { timestamp: 0, status: "offline" });
+        if (currentDisconnectRef) currentDisconnectRef.cancel(); 
+    }
+
     if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
+    }
+    if (etaInterval) {
+        clearInterval(etaInterval);
+        etaInterval = null;
     }
 
     selectedType = type;
@@ -178,9 +307,18 @@ function startTracking(runningType) {
 
     const busRef = ref(db, "shuttle/" + runningType);
 
+    currentDisconnectRef = onDisconnect(busRef);
+    currentDisconnectRef.update({ timestamp: 0, status: "offline" });
+
+    // 啟動 60 秒定期呼叫 Google API 算路況的定時器
+    setTimeout(() => { if (selectedType === runningType) calculateAndPushETA(runningType); }, 3000);
+    etaInterval = setInterval(() => {
+        if (selectedType === runningType) calculateAndPushETA(runningType);
+    }, 60000); // 60,000 毫秒 = 1分鐘
+
     const currentWatchId = navigator.geolocation.watchPosition(
         (pos) => {
-            if (runningType !== selectedType) {
+            if (runningType !== selectedType || checkAndTriggerKillSwitch(runningType)) {
                 navigator.geolocation.clearWatch(currentWatchId);
                 return; 
             }
@@ -190,22 +328,22 @@ function startTracking(runningType) {
             const accuracy = Math.round(pos.coords.accuracy);
             const now = Date.now();
 
-            if (accuracy > 100) {
-                return; 
-            }
+            if (accuracy > 100) return; 
 
             detectDirection(lat, lng);
 
             lastGoodLat = lat;
             lastGoodLng = lng;
 
-            set(busRef, {
+            // 🌟 這裡使用 update 而不是 set，才不會把 ETA 資料覆蓋洗掉
+            update(busRef, {
                 lat: lat,
                 lng: lng,
                 direction: currentDirection,
                 accuracy: accuracy,
                 timestamp: now,
-                sessionId: mySessionId
+                sessionId: mySessionId,
+                status: "online"
             });
 
             document.getElementById("status").innerHTML = "🟢 系統即時連線追蹤中";
@@ -224,11 +362,7 @@ function startTracking(runningType) {
                 document.getElementById("status").innerHTML = "🔴 定位失敗：" + error.message;
             }
         },
-        {
-            enableHighAccuracy: true,
-            maximumAge: 0,
-            timeout: 10000
-        }
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
     );
 
     watchId = currentWatchId;
@@ -261,49 +395,27 @@ function detectDirection(lat, lng) {
     const distA8 = getDistance(lat, lng, A8.lat, A8.lng);
     const distAdvantech = getDistance(lat, lng, ADVANTECH.lat, ADVANTECH.lng);
 
-    // 🌟【關鍵修正 1：超近距離的狀態鎖定】
-    if (distAdvantech < 20) {
-        updateDirection("toA8");
-        return;
-    }
-    
-    // 如果距離 A8 極近，方向鎖定為 "toAdvantech"
-    if (distA8 < 30) {
-        updateDirection("toAdvantech");
-        return;
-    }
+    if (distAdvantech < 20) { updateDirection("toA8"); return; }
+    if (distA8 < 30) { updateDirection("toAdvantech"); return; }
 
     if (lastGoodLat === null) {
-        if (distAdvantech < distA8) {
-            updateDirection("toA8");
-        } else {
-            updateDirection("toAdvantech");
-        }
+        if (distAdvantech < distA8) updateDirection("toA8");
+        else updateDirection("toAdvantech");
         return;
     }
 
-    // 🌟【關鍵修正 2：利用「遠離速度」抓出剛離站的瞬間】
     const lastDistToAdvantech = getDistance(lastGoodLat, lastGoodLng, ADVANTECH.lat, ADVANTECH.lng);
-    const nowDistToAdvantech = distAdvantech;
-    const movingDiff = nowDistToAdvantech - lastDistToAdvantech; // 正數代表正在「遠離公司」
+    const movingDiff = distAdvantech - lastDistToAdvantech; 
 
-    if (distAdvantech < 150 && movingDiff > 5) {
-        updateDirection("toA8"); 
-        return;
-    }
+    if (distAdvantech < 150 && movingDiff > 5) { updateDirection("toA8"); return; }
 
-    // A8 距離判定邏輯輔助
     const lastDistToA8 = getDistance(lastGoodLat, lastGoodLng, A8.lat, A8.lng);
     const diffA8 = lastDistToA8 - distA8;
     if (Math.abs(diffA8) >= 12) {
-        if (diffA8 > 0) {
-            updateDirection("toA8");        
-        } else {
-            updateDirection("toAdvantech"); 
-        }
+        if (diffA8 > 0) updateDirection("toA8");        
+        else updateDirection("toAdvantech"); 
     }
 }
 </script>
-
 </body>
 </html>
