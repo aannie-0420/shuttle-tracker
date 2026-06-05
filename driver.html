@@ -155,7 +155,6 @@ window.addEventListener("beforeunload", () => {
 // 🛑 核心功能：19:00 自動下班防呆機制 (Kill Switch)
 function checkAndTriggerKillSwitch(runningType) {
     const currentHour = new Date().getHours();
-    // 如果時間大於等於 19 點 (代表 19:00 ~ 23:59)
     if (currentHour >= 19) {
         if (watchId !== null) {
             navigator.geolocation.clearWatch(watchId);
@@ -167,7 +166,7 @@ function checkAndTriggerKillSwitch(runningType) {
         }
         
         const busRef = ref(db, "shuttle/" + runningType);
-        update(busRef, { status: "scheduled", timestamp: Date.now() }); // 轉交給固定班表
+        update(busRef, { status: "scheduled", timestamp: Date.now() }); 
 
         document.getElementById("status").innerHTML = "🌙 服務時段已結束";
         document.getElementById("status").style.color = "#757575";
@@ -183,7 +182,7 @@ function checkAndTriggerKillSwitch(runningType) {
     return false;
 }
 
-// 🌐 核心功能：60秒一次的 Google 即時路況矩陣計算 (彈性路線防斷版)
+// 🌐 核心功能：120秒一次的 Google 即時路況矩陣計算 (保證免費 + 彈性路徑 + 大防護罩版)
 function calculateAndPushETA(runningType) {
     if (!lastGoodLat || !lastGoodLng) return;
     if (checkAndTriggerKillSwitch(runningType)) return;
@@ -191,23 +190,24 @@ function calculateAndPushETA(runningType) {
     const busRef = ref(db, "shuttle/" + runningType);
     const distCampus = getDistance(lastGoodLat, lastGoodLng, ADVANTECH.lat, ADVANTECH.lng);
     const distA8 = getDistance(lastGoodLat, lastGoodLng, A8.lat, A8.lng);
-    const defaultShuttleMin = 15;
+    
+    // 🌟 將預設時間改為 10 分鐘，更貼近真實搭車體驗
+    const defaultShuttleMin = 10;
     let effectiveDirection = currentDirection === "unknown" ? "toA8" : currentDirection;
 
-    // 🌟 150 公尺防護罩：解決你在園區深處被誤判發車的問題，直接給 0 分鐘！
+    // 🌟 150 公尺防護罩：解決園區深處被誤判發車的問題
     if (effectiveDirection === "toA8" && distCampus < 150) {
         update(busRef, { etaToCampus: 0, totalCommute: defaultShuttleMin, status: "online", timestamp: Date.now() });
         document.getElementById("ui-eta").innerHTML = "園區待發中";
         return;
     }
-    // A8 站同樣給予 150 公尺的緩衝，方便司機在福容飯店附近提早切換狀態
+    // A8 站同樣給予 150 公尺的緩衝
     if (effectiveDirection === "toAdvantech" && distA8 < 150) {
         update(busRef, { etaToCampus: defaultShuttleMin, totalCommute: defaultShuttleMin * 2, status: "online", timestamp: Date.now() });
         document.getElementById("ui-eta").innerHTML = "A8站待發中";
         return;
     }
 
-    // 🌟 回歸使用矩陣計算，讓 Google 從司機「當下在哪裡」直接找最快路線（支援文明路抄捷徑）
     const service = new google.maps.DistanceMatrixService();
     const busLoc = new google.maps.LatLng(lastGoodLat, lastGoodLng);
     const campusLoc = new google.maps.LatLng(ADVANTECH.lat, ADVANTECH.lng);
@@ -215,7 +215,6 @@ function calculateAndPushETA(runningType) {
 
     let request = {
         travelMode: "DRIVING",
-        // 🌟 核心關鍵：掛上現在時間，啟動紅綠燈與真實塞車運算！
         drivingOptions: { departureTime: new Date(), trafficModel: "bestguess" }
     };
 
@@ -233,7 +232,6 @@ function calculateAndPushETA(runningType) {
                 let etaToCampus = defaultShuttleMin;
                 let totalCommute = defaultShuttleMin * 2;
                 
-                // 優先抓取 duration_in_traffic (包含塞車與紅綠燈的真實時間)
                 const getDuration = (element) => {
                     return element.duration_in_traffic ? element.duration_in_traffic.value : element.duration.value;
                 };
@@ -263,7 +261,7 @@ function calculateAndPushETA(runningType) {
 }
 
 function selectBus(type) {
-    if (checkAndTriggerKillSwitch(type)) return; // 若已經超過 19:00，直接拒絕上班
+    if (checkAndTriggerKillSwitch(type)) return; 
 
     if (selectedType && selectedType !== type) {
         const oldBusRef = ref(db, "shuttle/" + selectedType);
@@ -313,11 +311,11 @@ function startTracking(runningType) {
     currentDisconnectRef = onDisconnect(busRef);
     currentDisconnectRef.update({ timestamp: 0, status: "offline" });
 
-    // 啟動 60 秒定期呼叫 Google API 算路況的定時器
+    // 🌟 定時器已改為 120,000 毫秒 (120秒)，確保 100% 免費！
     setTimeout(() => { if (selectedType === runningType) calculateAndPushETA(runningType); }, 3000);
     etaInterval = setInterval(() => {
         if (selectedType === runningType) calculateAndPushETA(runningType);
-    }, 60000); // 60,000 毫秒 = 1分鐘
+    }, 120000); 
 
     const currentWatchId = navigator.geolocation.watchPosition(
         (pos) => {
@@ -338,7 +336,6 @@ function startTracking(runningType) {
             lastGoodLat = lat;
             lastGoodLng = lng;
 
-            // 🌟 這裡使用 update 而不是 set，才不會把 ETA 資料覆蓋洗掉
             update(busRef, {
                 lat: lat,
                 lng: lng,
