@@ -3,98 +3,89 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>智慧接駁車 GPS 系統 - 司機端 (數據採集版)</title>
+<title>智慧接駁車 GPS 系統 - 司機端</title>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBYOfPOfRdXpRYxiKTGRMI4a5qTi6e1PFE"></script>
 <style>
-body{ font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#f0f0f0; padding:30px; text-align:center; }
-.card{ background:white; max-width:650px; margin:auto; padding:30px; border-radius:20px; box-shadow:0 4px 15px rgba(0,0,0,0.1); }
-.btn-group { display: flex; justify-content: center; gap: 15px; margin: 20px 0; }
-button{ flex: 1; max-width: 180px; padding: 15px 20px; border: none; border-radius: 12px; cursor: pointer; font-size: 18px; font-weight: bold; transition: all 0.2s ease; }
-.small{ background:#BBDEFB; color:#1565C0; }
-.medium{ background:#C8E6C9; color:#2E7D32; }
-button.active-small { background: #1565C0; color: white; }
-button.active-medium { background: #2E7D32; color: white; }
-#status{ margin-top:25px; font-size:24px; font-weight:bold; color: #555; }
-#direction{ margin-top:15px; font-size:22px; font-weight:bold; color: #e53935; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f0f0; padding: 20px; text-align: center; }
+    .card { background: white; max-width: 600px; margin: auto; padding: 30px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    .btn-group { display: flex; justify-content: center; gap: 15px; margin: 20px 0; }
+    button { flex: 1; padding: 15px; border: none; border-radius: 12px; cursor: pointer; font-size: 18px; font-weight: bold; transition: 0.3s; }
+    .small { background: #BBDEFB; color: #1565C0; }
+    .medium { background: #C8E6C9; color: #2E7D32; }
+    .active-small { background: #1565C0 !important; color: white !important; }
+    .active-medium { background: #2E7D32 !important; color: white !important; }
+    #status { margin-top: 25px; font-size: 20px; color: #555; }
 </style>
 </head>
 <body>
 
 <div class="card">
-    <h2>🚐 研華接駁車司機回報端</h2>
+    <h2>🚐 司機回報端</h2>
     <div class="btn-group">
-        <button id="btn-small" class="small">🚗 駕駛小巴</button>
-        <button id="btn-medium" class="medium">🚌 駕駛中巴</button>
+        <button id="btn-small" class="small">🚗 小巴</button>
+        <button id="btn-medium" class="medium">🚌 中巴</button>
     </div>
-    <div id="status">⚪ 尚未選擇車型</div>
-    <div id="direction">方向：--</div>
+    <div id="status">⚪ 請選擇車型開始定位</div>
 </div>
 
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, update, set, onDisconnect } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref, update, set } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-const firebaseConfig = {
-    apiKey: "AIzaSyDxDD9jZA25Hk19HF0UUo0f3ZiEWv1azuk",
-    databaseURL: "https://advantech-shuttle-tracker-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "advantech-shuttle-tracker",
-    appId: "1:749819334514:web:582850faa8216c5b7d57eb"
-};
+    const firebaseConfig = {
+        apiKey: "AIzaSyDxDD9jZA25Hk19HF0UUo0f3ZiEWv1azuk",
+        databaseURL: "https://advantech-shuttle-tracker-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "advantech-shuttle-tracker",
+        appId: "1:749819334514:web:582850faa8216c5b7d57eb"
+    };
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
 
-// 🌟 新增：用於「零成本大數據」收集的暫存陣列
-let commuteHistory = [];
+    let selectedType = null, watchId = null;
+    let commuteHistory = [];
+    let mySessionId = localStorage.getItem("shuttle_device_id") || "dev_" + Math.random().toString(36).substring(2, 10);
+    localStorage.setItem("shuttle_device_id", mySessionId);
 
-const ADVANTECH = { lat: 25.057506, lng: 121.381707 }; 
-const A8 = { lat: 25.0606478, lng: 121.370454 };      
-
-let mySessionId = localStorage.getItem("shuttle_device_id") || "dev_" + Math.random().toString(36).substring(2, 10);
-localStorage.setItem("shuttle_device_id", mySessionId);
-
-let selectedType = null, watchId = null, etaInterval = null;
-
-// 🛑 下班打包上傳邏輯
-function uploadHistory() {
-    if (commuteHistory.length > 0) {
-        const archiveRef = ref(db, "archive/" + mySessionId + "/" + Date.now());
-        set(archiveRef, commuteHistory); // 一次寫入全部紀錄，極致省下寫入額度
-        commuteHistory = []; // 清空記憶體
-    }
-}
-
-window.addEventListener("beforeunload", () => {
-    if (selectedType) {
-        uploadHistory();
-        update(ref(db, "shuttle/" + selectedType), { timestamp: 0, status: "offline" });
-    }
-});
-
-function checkAndTriggerKillSwitch(runningType) {
-    if (new Date().getHours() >= 19) {
-        uploadHistory(); // 時間到，打包封存
+    // 核心：定位追蹤引擎
+    function startTracking(type) {
         if (watchId) navigator.geolocation.clearWatch(watchId);
-        if (etaInterval) clearInterval(etaInterval);
-        update(ref(db, "shuttle/" + runningType), { status: "scheduled", timestamp: Date.now() });
-        return true;
+        
+        watchId = navigator.geolocation.watchPosition((pos) => {
+            const { latitude, longitude } = pos.coords;
+            const data = { lat: latitude, lng: longitude, timestamp: Date.now(), status: "online" };
+            
+            update(ref(db, "shuttle/" + type), data);
+            commuteHistory.push({ time: new Date().toISOString(), type, lat: latitude, lng: longitude });
+        }, (err) => console.error(err), { enableHighAccuracy: true });
     }
-    return false;
-}
 
-function calculateAndPushETA(runningType) {
-    if (checkAndTriggerKillSwitch(runningType)) return;
-    const busRef = ref(db, "shuttle/" + runningType);
-    
-    // 🌐 執行導航計算... (省略重複部分，邏輯同前一版)
-    // 🌟 在成功更新 Firebase 後，同步存入採集陣列
-    const logEntry = { time: new Date().toISOString(), type: runningType, eta: 10 }; // 簡化範例
-    commuteHistory.push(logEntry);
-    
-    // 執行 update (保持原邏輯)
-}
+    // 事件監聽：處理點擊
+    document.getElementById('btn-small').addEventListener('click', () => {
+        selectedType = 'small';
+        document.getElementById('status').innerText = '🚗 已啟動小巴追蹤';
+        document.getElementById('btn-small').classList.add('active-small');
+        document.getElementById('btn-medium').classList.remove('active-medium');
+        startTracking('small');
+    });
 
-// ...其餘 startTracking 與 detectDirection 邏輯保持不變...
+    document.getElementById('btn-medium').addEventListener('click', () => {
+        selectedType = 'medium';
+        document.getElementById('status').innerText = '🚌 已啟動中巴追蹤';
+        document.getElementById('btn-medium').classList.add('active-medium');
+        document.getElementById('btn-small').classList.remove('active-small');
+        startTracking('medium');
+    });
+
+    // 關閉頁面時自動打包數據
+    window.addEventListener("beforeunload", () => {
+        if (commuteHistory.length > 0) {
+            set(ref(db, "archive/" + mySessionId + "/" + Date.now()), commuteHistory);
+        }
+        if (selectedType) {
+            update(ref(db, "shuttle/" + selectedType), { status: "offline" });
+        }
+    });
 </script>
 </body>
 </html>
