@@ -395,8 +395,17 @@ function detectDirection(lat, lng) {
     const distA8 = getDistance(lat, lng, A8.lat, A8.lng);
     const distAdvantech = getDistance(lat, lng, ADVANTECH.lat, ADVANTECH.lng);
 
-    if (distAdvantech < 20) { updateDirection("toA8"); return; }
-    if (distA8 < 30) { updateDirection("toAdvantech"); return; }
+    // 🌟 修正 1：放寬到 150 公尺，且「強制瞬間鎖定方向」，不再卡在❓判斷中
+    if (distAdvantech < 150) { 
+        currentDirection = "toA8"; 
+        pendingDirection = "toA8";
+        return; 
+    }
+    if (distA8 < 150) { 
+        currentDirection = "toAdvantech"; 
+        pendingDirection = "toAdvantech";
+        return; 
+    }
 
     if (lastGoodLat === null) {
         if (distAdvantech < distA8) updateDirection("toA8");

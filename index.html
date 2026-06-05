@@ -273,18 +273,22 @@ function updateBusUI(type, data, currentStatus) {
     statusEl.className = "online";
 
     let direction = "🚌 行駛中";
-    // 直接從 Firebase 讀取司機端算好的結果，不耗費客戶端資源！
     let etaDisplay = (data.etaToCampus !== undefined && data.etaToCampus !== null) ? data.etaToCampus + " 分鐘" : "計算中...";
 
-    if (data.direction === "toA8") {
+    // 🌟 修正 2：處理剛開機時的 unknown 狀態
+    let effectiveDir = data.direction;
+    if (effectiveDir === "unknown" || !effectiveDir) effectiveDir = "toA8";
+
+    if (effectiveDir === "toA8") {
         if (data.etaToCampus === 0) {
             direction = "📍 停靠在研華園區";
             etaDisplay = "園區待發";
         } else {
             direction = "➡️ 前往A8機捷站";
         }
-    } else if (data.direction === "toAdvantech") {
-        if (data.etaToCampus === 15 && data.totalCommute === 30) {
+    } else if (effectiveDir === "toAdvantech") {
+        // 🌟 修正 3：把舊版的 15/30 分鐘，同步改成司機端設定的 10/20 分鐘
+        if (data.etaToCampus === 10 && data.totalCommute === 20) {
             direction = "📍 停靠在 A8 機捷站";
             etaDisplay = "A8 站待發";
         } else {
