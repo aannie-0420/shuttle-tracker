@@ -78,7 +78,6 @@ button {
         <div id="eta" class="warn">預估抵達園區：--</div>
         <div id="lat">目前緯度：--</div>
         <div id="lng">目前經度：--</div>
-        <div id="accuracy">定位精準度：--</div>
     </div>
 
     <button class="stop-btn" onclick="stopTracking()">停止追蹤 / 下班封存</button>
@@ -277,13 +276,29 @@ async function calculateAndPushETA(runningType, lat, lng, direction, force = fal
     const distanceToCampus = distanceMeters(lat, lng, LIN_KOU_CAMPUS.lat, LIN_KOU_CAMPUS.lng);
     const distanceToA8 = distanceMeters(lat, lng, A8_STATION_GPS.lat, A8_STATION_GPS.lng);
 
-    if (direction === "toA8" && distanceToCampus <= STOP_RADIUS) {
-        lastEtaToCampus = 0;
-        lastTotalCommute = DEFAULT_A8_TO_CAMPUS_MIN;
-        await updateFirebaseETA(runningType);
-        logStop("campus", runningType, lat, lng, direction);
-        return;
-    }
+    if (direction === "toA8" && distanceToCampus <= 30) {
+    lastEtaToCampus = 0;
+    lastTotalCommute = DEFAULT_A8_TO_CAMPUS_MIN;
+    await updateFirebaseETA(runningType);
+    logStop("campus", runningType, lat, lng, direction);
+    return;
+}
+
+if (direction === "toA8" && distanceToCampus <= 100) {
+    lastEtaToCampus = null;
+    lastTotalCommute = DEFAULT_TOTAL_COMMUTE_MIN;
+    lastTrafficTime = DEFAULT_A8_TO_CAMPUS_MIN;
+
+    await update(ref(db, "shuttle/" + runningType), {
+        etaToCampus: null,
+        totalCommute: lastTotalCommute,
+        trafficTime: lastTrafficTime,
+        googleUpdatedAt: Date.now()
+    });
+
+    document.getElementById("eta").innerText = "預估抵達園區：前往 A8 中";
+    return;
+}
 
     if (direction === "toAdvantech" && distanceToA8 <= STOP_RADIUS) {
         lastEtaToCampus = DEFAULT_A8_TO_CAMPUS_MIN;
@@ -542,8 +557,6 @@ window.selectBus = async (type) => {
         document.getElementById("lng").innerText =
             "目前經度：" + longitude.toFixed(6);
 
-        document.getElementById("accuracy").innerText =
-            "定位精準度：" + Math.round(accuracy || 0) + " 公尺";
 
         calculateAndPushETA(type, latitude, longitude, direction);
 
