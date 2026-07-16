@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>司機端 - 智慧追蹤版</title>
+
+<style>
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: 20px;
+    background: #f8f9fa;
+}
+.card {
+    background: white;
+    padding: 25px;
+    border-radius: 20px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    max-width: 600px;
+    margin: auto;
+}
+.btn-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-bottom: 25px;
+}
+button {
+    padding: 25px;
+    border-radius: 15px;
+    border: none;
+    font-size: 24px;
+    font-weight: bold;
+    cursor: pointer;
+}
+.active-small {
+    background: #1565C0 !important;
+    color: white !important;
+}
+.active-medium {
+    background: #2E7D32 !important;
+    color: white !important;
+}
+.stop-btn {
+    width: 100%;
+    margin-top: 20px;
+    background: #c62828;
+    color: white;
+}
+#info-panel {
+    text-align: left;
+    background: #e3f2fd;
+    padding: 20px;
+    border-radius: 15px;
+    font-size: 20px;
+    line-height: 2;
+    font-weight: bold;
+}
+.warn {
+    color: #d32f2f;
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+    <h2>🚐 研華接駁車司機端</h2>
+
+    <div class="btn-group">
+        <button id="btn-small" onclick="selectBus('small')">🚗 小巴</button>
+        <button id="btn-medium" onclick="selectBus('medium')">🚌 中巴</button>
+    </div>
+
+    <div id="info-panel">
+        <div id="status">狀態：⚪ 請選擇車型</div>
+        <div id="direction">方向：--</div>
+        <div id="eta" class="warn">預估抵達園區：--</div>
+        <div id="lat">目前緯度：--</div>
+        <div id="lng">目前經度：--</div>
+    </div>
+
+    <button class="stop-btn" onclick="stopTracking()">停止追蹤 / 下班封存</button>
+</div>
+
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBYOfPOfRdXpRYxiKTGRMI4a5qTi6e1PFE&libraries=geometry"></script>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, update, set } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+const firebaseConfig = {
+    apiKey: "AIzaSyDxDD9jZA25Hk19HF0UUo0f3ZiEWv1azuk",
+    databaseURL: "https://advantech-shuttle-tracker-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "advantech-shuttle-tracker",
+    appId: "1:749819334514:web:582850faa8216c5b7d57eb"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const LIN_KOU_CAMPUS = { lat: 25.057506, lng: 121.381707 };
+const A8_STATION_GPS = { lat: 25.0606478, lng: 121.370454 };
+
+// GPS 每 2 秒處理一次；方向採路線折線進度與最近 30 個「確實移動」座標判斷。
+// Google 路況每 5 分鐘才更新一次，避免 17:00~19:00 兩車同時上線時快速消耗額度。
+const GPS_SAMPLE_INTERVAL = 2000;
+const DIRECTION_SAMPLE_SIZE = 30;
+const DIRECTION_MIN_MOVE = 4;
+const DIRECTION_MAX_ACCURACY = 50;
+const ROUTE_MATCH_MAX_DISTANCE = 70;
+const DIRECTION_SWITCH_MIN_VOTES = 12;
+const DIRECTION_SWITCH_MARGIN = 6;
+const GOOGLE_ETA_INTERVAL = 5 * 60 * 1000;
+const NEAR_CAMPUS_RADIUS = 100;
+const NEAR_CAMPUS_EXIT_RADIUS = 130;
+const STOP_RADIUS = 60;
+const TERMINAL_STILL_MS = 60 * 1000;
+const TERMINAL_STILL_RADIUS = 12;
+const DEFAULT_A8_TO_CAMPUS_MIN = 10;
+const DEFAULT_TOTAL_COMMUTE_MIN = 20;
+const AUTO_STOP_HOUR = 19;
+
+let selectedType = null;
+let watchId = null;
+let autoStopTimer = null;
+let locationSampleTimer = null;
+
+let myDeviceId = getOrCreateDeviceId();
+let mySessionId = createSessionId();
+
+let commuteHistory = [];
+
+let lastLat = null;
+let lastLng = null;
+let lastDirection = "unknown";
+let lastEtaToCampus = null;
+let lastTotalCommute = null;
+let lastTrafficTime = null;
+let lastEtaStatus = null;
+let lastGoogleUpdate = 0;
+let lastPosition = null;
+let lastLoggedDirection = null;
+let lastStopPoint = null;
+let positionHistory = [];
+let routeProjectionHistory = null;
+let directionVotes = [];
+let lastAcceptedRoutePoint = null;
+let latestGpsPosition = null;
+let terminalCandidate = null;
+let terminalStillSince = 0;
+let terminalAnchor = null;
+let currentStopStatus = null;
+let processingPosition = false;
+
+function getOrCreateDeviceId() {
+    let id = localStorage.getItem("driver_device_id");
+    if (!id) {
+        id = "driver_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8);
+        localStorage.setItem("driver_device_id", id);
+    }
+    return id;
+}
+
+function createSessionId() {
+    const now = new Date();
+    return myDeviceId + "_" +
+        now.getFullYear() +
+        String(now.getMonth() + 1).padStart(2, "0") +
+        String(now.getDate()).padStart(2, "0") +
+        "_" +
+        String(now.getHours()).padStart(2, "0") +
+        String(now.getMinutes()).padStart(2, "0");
+}
+
+function distanceMeters(lat1, lng1, lat2, lng2) {
+    if (window.google && google.maps && google.maps.geometry) {
+        const p1 = new google.maps.LatLng(lat1, lng1);
+        const p2 = new google.maps.LatLng(lat2, lng2);
+        return google.maps.geometry.spherical.computeDistanceBetween(p1, p2);
+    }
+
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * Math.PI / 180) *
+        Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLng / 2) ** 2;
+
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// 由使用者繪製的 KMZ 取得；每條折線都依實際行車方向排序。
+const ROUTE_POINTS = {
+    red: [[25.05749,121.38196],[25.05723,121.38114],[25.05705,121.38044],[25.05699,121.38025],[25.05693,121.38006],[25.05689,121.37991],[25.05666,121.37912],[25.0566,121.37897],[25.05651,121.37872],[25.05645,121.37855],[25.0563,121.37825],[25.05616,121.37797],[25.05601,121.37775],[25.05598,121.3777],[25.0551,121.3766],[25.05503,121.37651],[25.05501,121.37648],[25.05496,121.37632],[25.05482,121.37621],[25.05473,121.37611],[25.05439,121.37573],[25.0549,121.37522],[25.05508,121.37505],[25.05529,121.37479],[25.05571,121.37436],[25.05594,121.37418],[25.05615,121.37392],[25.05662,121.37354],[25.05728,121.37281],[25.05756,121.3725],[25.05719,121.37202],[25.05699,121.37175],[25.0569,121.37164],[25.05697,121.37158],[25.05812,121.37041],[25.05871,121.36986],[25.05899,121.3702],[25.05946,121.36973],[25.05949,121.3697],[25.06016,121.36905],[25.06051,121.36962],[25.06062,121.3698],[25.06071,121.36994],[25.0609,121.37027],[25.06062,121.37052]],
+    green1: [[25.06062,121.37052],[25.06052,121.3706],[25.06034,121.37076],[25.05982,121.37126],[25.05894,121.37209],[25.0588,121.37222],[25.05839,121.37261],[25.05826,121.37274],[25.05798,121.373],[25.05755,121.37347],[25.05703,121.37398],[25.05689,121.37414],[25.05647,121.37456],[25.05637,121.37466],[25.05614,121.3749],[25.05577,121.37528],[25.05552,121.37553],[25.05482,121.37621],[25.05477,121.37629],[25.05487,121.37641],[25.05501,121.37648],[25.05503,121.37651],[25.0551,121.3766],[25.05598,121.3777],[25.05601,121.37775],[25.05616,121.37797],[25.0563,121.37825],[25.05645,121.37855],[25.05651,121.37872],[25.0566,121.37897],[25.05666,121.37912],[25.05689,121.37991],[25.05693,121.38006],[25.05699,121.38025],[25.05705,121.38044],[25.05723,121.38114],[25.05744,121.38179]],
+    green2: [[25.06072,121.36996],[25.0609,121.37027],[25.061,121.37041],[25.06106,121.37049],[25.06118,121.37053],[25.06124,121.37064],[25.06131,121.37075],[25.06136,121.37084],[25.0615,121.37107],[25.06157,121.37119],[25.06166,121.37134],[25.06168,121.37138],[25.06172,121.37146],[25.06185,121.37172],[25.06194,121.37188],[25.06198,121.37198],[25.06203,121.37208],[25.06211,121.37229],[25.06219,121.3725],[25.06238,121.37296],[25.06247,121.37326],[25.06251,121.37344],[25.06255,121.37362],[25.06257,121.37375],[25.06258,121.37386],[25.06259,121.37398],[25.06265,121.37441],[25.06273,121.37524],[25.06274,121.37549],[25.06275,121.37568],[25.06274,121.37573],[25.06273,121.37586],[25.06271,121.37596],[25.06269,121.37609],[25.06265,121.3763],[25.06261,121.37647],[25.06257,121.37659],[25.0625,121.37676],[25.06243,121.37691],[25.06238,121.37701],[25.0622,121.37731],[25.06205,121.37756],[25.06198,121.37766],[25.06188,121.37776],[25.06168,121.37798],[25.06141,121.37826],[25.06121,121.37845],[25.06103,121.3786],[25.06092,121.37867],[25.06085,121.3787],[25.06081,121.37873],[25.06073,121.37876],[25.06072,121.37877],[25.06066,121.37879],[25.06048,121.37884],[25.06033,121.37887],[25.06017,121.37889],[25.06004,121.3789],[25.05992,121.3789],[25.05968,121.37887],[25.05916,121.37881],[25.05838,121.37871],[25.05827,121.3787],[25.058,121.37866],[25.05788,121.37865],[25.05781,121.37865],[25.05707,121.37868],[25.05651,121.37872],[25.0566,121.37897],[25.05666,121.37912],[25.05689,121.37991],[25.05693,121.38006],[25.05699,121.38025],[25.05705,121.38044],[25.05723,121.38114],[25.05742,121.38173]]
+};
+
+function prepareRoute(name, direction, points) {
+    const cumulative = [0];
+    for (let i = 1; i < points.length; i++) {
+        cumulative.push(cumulative[i - 1] + distanceMeters(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1]));
+    }
+    return { name, direction, points, cumulative };
+}
+
+const ROUTE_MODELS = [
+    prepareRoute("red", "toA8", ROUTE_POINTS.red),
+    prepareRoute("green1", "toAdvantech", ROUTE_POINTS.green1),
+    prepareRoute("green2", "toAdvantech", ROUTE_POINTS.green2)
+];
+
+function projectToRoute(lat, lng, route) {
+    const latScale = 111320;
+    const lngScale = 111320 * Math.cos(lat * Math.PI / 180);
+    let best = { distance: Infinity, progress: 0 };
+
+    for (let i = 0; i < route.points.length - 1; i++) {
+        const a = route.points[i];
+        const b = route.points[i + 1];
+        const ax = (a[1] - lng) * lngScale;
+        const ay = (a[0] - lat) * latScale;
+        const dx = (b[1] - a[1]) * lngScale;
+        const dy = (b[0] - a[0]) * latScale;
+        const lengthSquared = dx * dx + dy * dy;
+        const t = lengthSquared ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / lengthSquared)) : 0;
+        const px = ax + t * dx;
+        const py = ay + t * dy;
+        const distance = Math.hypot(px, py);
+        if (distance < best.distance) {
+            const segmentLength = route.cumulative[i + 1] - route.cumulative[i];
+            best = { distance, progress: route.cumulative[i] + t * segmentLength };
+        }
+    }
+    return best;
+}
+
+function getDirection(lat, lng, accuracy) {
+    if (currentStopStatus === "atCampus") {
+        lastDirection = "toA8";
+        return lastDirection;
+    }
+    if (currentStopStatus === "atA8") {
+        lastDirection = "toAdvantech";
+        return lastDirection;
+    }
+
+    if (accuracy && accuracy > DIRECTION_MAX_ACCURACY) return lastDirection;
+
+    if (lastAcceptedRoutePoint) {
+        const moved = distanceMeters(lastAcceptedRoutePoint.lat, lastAcceptedRoutePoint.lng, lat, lng);
+        // 停等時相同座標或小幅 GPS 漂移不加入 30 點，也不改變方向。
+        if (moved < DIRECTION_MIN_MOVE) return lastDirection;
+    }
+
+    const projections = {};
+    for (const route of ROUTE_MODELS) projections[route.name] = projectToRoute(lat, lng, route);
+
+    if (routeProjectionHistory) {
+        const evidence = [];
+        for (const route of ROUTE_MODELS) {
+            const previous = routeProjectionHistory[route.name];
+            const current = projections[route.name];
+            const delta = current.progress - previous.progress;
+            if (previous.distance <= ROUTE_MATCH_MAX_DISTANCE &&
+                current.distance <= ROUTE_MATCH_MAX_DISTANCE &&
+                delta >= 2 && delta <= 150) {
+                evidence.push({
+                    direction: route.direction,
+                    score: delta - current.distance * 0.08
+                });
+            }
+        }
+
+        evidence.sort((a, b) => b.score - a.score);
+        if (evidence.length && evidence[0].score > 0) {
+            directionVotes.push(evidence[0].direction);
+            if (directionVotes.length > DIRECTION_SAMPLE_SIZE) directionVotes.shift();
+
+            const toA8Votes = directionVotes.filter(value => value === "toA8").length;
+            const toCampusVotes = directionVotes.filter(value => value === "toAdvantech").length;
+            const winner = toA8Votes > toCampusVotes ? "toA8" :
+                (toCampusVotes > toA8Votes ? "toAdvantech" : null);
+            const winnerVotes = Math.max(toA8Votes, toCampusVotes);
+            const voteMargin = Math.abs(toA8Votes - toCampusVotes);
+
+            if (lastDirection === "unknown") {
+                if (winner && winnerVotes >= 3 && voteMargin >= 2) lastDirection = winner;
+            } else if (winner === lastDirection) {
+                // 維持目前方向；停等路口不會因少數反向漂移點翻轉。
+            } else if (winner && winnerVotes >= DIRECTION_SWITCH_MIN_VOTES && voteMargin >= DIRECTION_SWITCH_MARGIN) {
+                lastDirection = winner;
+            }
+        }
+    }
+
+    routeProjectionHistory = projections;
+    lastAcceptedRoutePoint = { lat, lng };
+    lastLat = lat;
+    lastLng = lng;
+    return lastDirection;
+}
+
+function getTerminalStopStatus(lat, lng) {
+    const distanceToCampus = distanceMeters(lat, lng, LIN_KOU_CAMPUS.lat, LIN_KOU_CAMPUS.lng);
+    const distanceToA8 = distanceMeters(lat, lng, A8_STATION_GPS.lat, A8_STATION_GPS.lng);
+    const candidate = distanceToCampus <= STOP_RADIUS ? "atCampus" :
+        (distanceToA8 <= STOP_RADIUS ? "atA8" : null);
+
+    if (!candidate) {
+        terminalCandidate = null;
+        terminalStillSince = 0;
+        terminalAnchor = null;
+        currentStopStatus = null;
+        return null;
+    }
+
+    const anchorMoved = terminalAnchor
+        ? distanceMeters(terminalAnchor.lat, terminalAnchor.lng, lat, lng)
+        : 0;
+
+    if (candidate !== terminalCandidate || !terminalAnchor || anchorMoved > TERMINAL_STILL_RADIUS) {
+        terminalCandidate = candidate;
+        terminalStillSince = Date.now();
+        terminalAnchor = { lat, lng };
+        currentStopStatus = null;
+        return null;
+    }
+
+    if (Date.now() - terminalStillSince >= TERMINAL_STILL_MS) {
+        const justConfirmedStop = currentStopStatus !== candidate;
+        currentStopStatus = candidate;
+        lastDirection = candidate === "atCampus" ? "toA8" : "toAdvantech";
+        // A8 停靠一確認，立即以當下座標重查返回園區 ETA。
+        if (justConfirmedStop && candidate === "atA8") lastGoogleUpdate = 0;
+    }
+
+    return currentStopStatus;
+}
+
+function directionText(direction, lat, lng) {
+    const distanceToCampus = distanceMeters(lat, lng, LIN_KOU_CAMPUS.lat, LIN_KOU_CAMPUS.lng);
+    const distanceToA8 = distanceMeters(lat, lng, A8_STATION_GPS.lat, A8_STATION_GPS.lng);
+
+    if (direction === "toA8") {
+        if (currentStopStatus === "atCampus") return "📍 到達研華園區，準備發車";
+        return "➡️ 前往 A8 機捷站";
+    }
+
+    if (direction === "toAdvantech") {
+        if (currentStopStatus === "atA8") return "📍 到達 A8 機捷站，準備返回";
+        return "⬅️ 返回研華園區";
+    }
+
+    return "🚌 行駛中 / 方向判定中";
+}
+
+function addHistory(entry) {
+    commuteHistory.push({
+        ...entry,
+        time: new Date().toISOString(),
+        sessionId: mySessionId,
+        deviceId: myDeviceId
+    });
+
+    if (commuteHistory.length > 500) {
+        commuteHistory = commuteHistory.slice(-500);
+    }
+}
+
+async function uploadHistory() {
+    if (commuteHistory.length === 0) return;
+
+    const archiveRef = ref(db, "archive/" + mySessionId + "/" + Date.now());
+
+    try {
+        await set(archiveRef, commuteHistory);
+        commuteHistory = [];
+    } catch (err) {
+        console.error("Log 上傳失敗", err);
+    }
+}
+
+function getElementMinutes(element) {
+    if (!element || element.status !== "OK") return null;
+    const duration = element.duration_in_traffic || element.duration;
+    if (!duration) return null;
+    return Math.max(1, Math.round(duration.value / 60));
+}
+
+async function calculateAndPushETA(runningType, lat, lng, direction, force = false) {
+    if (checkAndTriggerKillSwitch(runningType)) return;
+
+    const now = Date.now();
+    const distanceToCampus = distanceMeters(lat, lng, LIN_KOU_CAMPUS.lat, LIN_KOU_CAMPUS.lng);
+    const distanceToA8 = distanceMeters(lat, lng, A8_STATION_GPS.lat, A8_STATION_GPS.lng);
+
+    // 已真正進入園區核心範圍，沿用原本「園區待發」狀態。
+    if (currentStopStatus === "atCampus") {
+        lastEtaStatus = null;
+        lastEtaToCampus = 0;
+        lastTotalCommute = DEFAULT_A8_TO_CAMPUS_MIN;
+        await updateFirebaseETA(runningType, false);
+        logStop("campus", runningType, lat, lng, direction);
+        return;
+    }
+
+    // 返回園區且距離園區 100 公尺內，不再呼叫 Google API。
+    // 130 公尺退出半徑用來避免 GPS 在 100 公尺邊界附近來回跳動。
+    const keepNearCampusStatus =
+        lastEtaStatus === "nearCampus" && distanceToCampus <= NEAR_CAMPUS_EXIT_RADIUS;
+
+    if ((direction === "toAdvantech" && distanceToCampus <= NEAR_CAMPUS_RADIUS) || keepNearCampusStatus) {
+        lastEtaStatus = "nearCampus";
+        lastEtaToCampus = null;
+
+        await update(ref(db, "shuttle/" + runningType), {
+            etaStatus: lastEtaStatus,
+            etaToCampus: null,
+            totalCommute: lastTotalCommute,
+            trafficTime: lastTrafficTime,
+            timestamp: Date.now()
+        });
+
+        updateDriverETA();
+        return;
+    }
+
+    if (lastEtaStatus === "nearCampus" && distanceToCampus > NEAR_CAMPUS_EXIT_RADIUS) {
+        lastEtaStatus = null;
+    }
+
+    if (direction === "toA8" && distanceToCampus <= 100) {
+        lastEtaStatus = null;
+        lastEtaToCampus = null;
+        lastTotalCommute = DEFAULT_TOTAL_COMMUTE_MIN;
+        lastTrafficTime = DEFAULT_A8_TO_CAMPUS_MIN;
+
+        await update(ref(db, "shuttle/" + runningType), {
+            etaStatus: null,
+            etaToCampus: null,
+            totalCommute: lastTotalCommute,
+            trafficTime: lastTrafficTime,
+            timestamp: Date.now()
+        });
+
+        document.getElementById("eta").innerText = "預估抵達園區：前往 A8 中";
+        return;
+    }
+
+    if (currentStopStatus === "atA8") logStop("a8", runningType, lat, lng, direction);
+
+    if (!force && now - lastGoogleUpdate < GOOGLE_ETA_INTERVAL) {
+        return;
+    }
+
+    if (!window.google || !google.maps) {
+        return;
+    }
+
+    if (direction !== "toA8" && direction !== "toAdvantech") return;
+
+    lastGoogleUpdate = now;
+    lastEtaStatus = null;
+
+    const service = new google.maps.DistanceMatrixService();
+
+    let origins;
+    let destinations;
+
+    if (direction === "toA8") {
+        origins = [{ lat, lng }];
+        destinations = [A8_STATION_GPS];
+    } else {
+        origins = [{ lat, lng }];
+        destinations = [LIN_KOU_CAMPUS];
+    }
+
+    service.getDistanceMatrix({
+        origins,
+        destinations,
+        travelMode: "DRIVING",
+        drivingOptions: {
+            departureTime: new Date(),
+            trafficModel: "bestguess"
+        }
+    }, async (response, status) => {
+        if (status !== "OK") {
+            return;
+        }
+
+        // 若車輛已進入園區 100 公尺範圍，忽略稍早送出的 Google 回應，
+        // 避免舊 ETA 覆蓋「即將抵達園區」。
+        if (lastEtaStatus === "nearCampus") {
+            return;
+        }
+
+        try {
+            if (direction === "toA8") {
+                const minBusToA8 = getElementMinutes(response.rows[0].elements[0]);
+                const minA8ToCampus = lastEtaToCampus && lastEtaToCampus > minBusToA8
+                    ? lastEtaToCampus - minBusToA8
+                    : DEFAULT_A8_TO_CAMPUS_MIN;
+                const minCampusToA8 = lastTrafficTime || DEFAULT_A8_TO_CAMPUS_MIN;
+
+                if (minBusToA8 === null || minA8ToCampus === null || minCampusToA8 === null) return;
+
+                lastEtaToCampus = minBusToA8 + minA8ToCampus;
+                lastTotalCommute = lastEtaToCampus + minCampusToA8;
+                lastTrafficTime = minCampusToA8;
+            } else {
+                const minBusToCampus = getElementMinutes(response.rows[0].elements[0]);
+                const minCampusToA8 = lastTrafficTime || DEFAULT_A8_TO_CAMPUS_MIN;
+
+                if (minBusToCampus === null || minCampusToA8 === null) return;
+
+                lastEtaToCampus = minBusToCampus;
+                lastTotalCommute = minBusToCampus + minCampusToA8;
+                lastTrafficTime = minCampusToA8;
+            }
+
+            await updateFirebaseETA(runningType, true);
+
+            addHistory({
+                event: "google_eta",
+                type: runningType,
+                direction,
+                lat,
+                lng,
+                etaToCampus: lastEtaToCampus,
+                totalCommute: lastTotalCommute,
+                trafficTime: lastTrafficTime
+            });
+
+            updateDriverETA();
+
+        } catch (err) {
+            console.error("Google ETA 解析失敗", err);
+        }
+    });
+}
+
+async function updateFirebaseETA(runningType, fromGoogle = false) {
+    const payload = {
+        stopStatus: currentStopStatus,
+        etaStatus: lastEtaStatus,
+        etaToCampus: lastEtaToCampus,
+        totalCommute: lastTotalCommute,
+        trafficTime: lastTrafficTime,
+        timestamp: Date.now()
+    };
+
+    if (fromGoogle) {
+        payload.googleUpdatedAt = Date.now();
+    }
+
+    await update(ref(db, "shuttle/" + runningType), payload);
+    updateDriverETA();
+}
+
+function updateDriverETA() {
+    if (currentStopStatus === "atCampus") {
+        document.getElementById("eta").innerText = "預估抵達園區：園區待發";
+    } else if (lastEtaStatus === "nearCampus") {
+        document.getElementById("eta").innerText = "預估抵達園區：即將抵達園區";
+    } else if (lastEtaToCampus === null || lastEtaToCampus === undefined) {
+        document.getElementById("eta").innerText = "預估抵達園區：計算中...";
+    } else if (lastEtaToCampus === 0) {
+        document.getElementById("eta").innerText = "預估抵達園區：園區待發";
+    } else {
+        document.getElementById("eta").innerText = "預估抵達園區：" + lastEtaToCampus + " 分鐘";
+    }
+}
+
+function logDirectionChange(type, lat, lng, direction) {
+    if (direction !== lastLoggedDirection) {
+        lastLoggedDirection = direction;
+        addHistory({
+            event: "direction_changed",
+            type,
+            direction,
+            lat,
+            lng
+        });
+    }
+}
+
+function logStop(point, type, lat, lng, direction) {
+    if (lastStopPoint === point) return;
+
+    lastStopPoint = point;
+
+    addHistory({
+        event: "arrived_" + point,
+        type,
+        direction,
+        lat,
+        lng
+    });
+}
+
+function checkAndTriggerKillSwitch(runningType) {
+    const hour = new Date().getHours();
+
+    if (hour >= AUTO_STOP_HOUR) {
+        autoStop(runningType);
+        return true;
+    }
+
+    return false;
+}
+
+async function processLatestPosition(type) {
+    if (!latestGpsPosition || processingPosition || selectedType !== type) return;
+    processingPosition = true;
+
+    try {
+        const { latitude, longitude, accuracy } = latestGpsPosition.coords;
+        getTerminalStopStatus(latitude, longitude);
+        const direction = getDirection(latitude, longitude, accuracy);
+
+        lastPosition = { lat: latitude, lng: longitude, direction };
+
+        await update(ref(db, "shuttle/" + type), {
+            lat: latitude,
+            lng: longitude,
+            accuracy: Math.round(accuracy || 0),
+            direction,
+            stopStatus: currentStopStatus,
+            etaStatus: lastEtaStatus,
+            etaToCampus: lastEtaToCampus,
+            totalCommute: lastTotalCommute,
+            trafficTime: lastTrafficTime,
+            timestamp: Date.now(),
+            status: "online",
+            type,
+            sessionId: mySessionId,
+            deviceId: myDeviceId
+        });
+
+        logDirectionChange(type, latitude, longitude, direction);
+        document.getElementById("status").innerText =
+            "狀態：📍 追蹤中 (" + (type === "small" ? "小巴" : "中巴") + ")";
+        document.getElementById("direction").innerText =
+            "方向：" + directionText(direction, latitude, longitude);
+        document.getElementById("lat").innerText = "目前緯度：" + latitude.toFixed(6);
+        document.getElementById("lng").innerText = "目前經度：" + longitude.toFixed(6);
+
+        calculateAndPushETA(type, latitude, longitude, direction);
+    } finally {
+        processingPosition = false;
+    }
+}
+
+async function autoStop(runningType) {
+    await uploadHistory();
+
+    if (watchId) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+    }
+
+    if (autoStopTimer) {
+        clearInterval(autoStopTimer);
+        autoStopTimer = null;
+    }
+
+    if (locationSampleTimer) {
+        clearInterval(locationSampleTimer);
+        locationSampleTimer = null;
+    }
+
+    await update(ref(db, "shuttle/" + runningType), {
+        status: "scheduled",
+        stopStatus: null,
+        etaStatus: null,
+        timestamp: Date.now(),
+        sessionId: mySessionId,
+        deviceId: myDeviceId
+    });
+
+    document.getElementById("status").innerText = "狀態：🟢 已自動切換為依班表行駛";
+    document.getElementById("direction").innerText = "方向：非動態追蹤時段";
+    document.getElementById("eta").innerText = "預估抵達園區：--";
+
+    selectedType = null;
+}
+
+window.selectBus = async (type) => {
+    selectedType = type;
+
+    if (watchId) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+    }
+
+    if (autoStopTimer) {
+        clearInterval(autoStopTimer);
+        autoStopTimer = null;
+    }
+
+    if (locationSampleTimer) {
+        clearInterval(locationSampleTimer);
+        locationSampleTimer = null;
+    }
+
+    lastLat = null;
+    lastLng = null;
+    lastDirection = "unknown";
+    lastEtaToCampus = null;
+    lastTotalCommute = null;
+    lastTrafficTime = null;
+    lastEtaStatus = null;
+    lastGoogleUpdate = 0;
+    lastPosition = null;
+    lastLoggedDirection = null;
+    lastStopPoint = null;
+    positionHistory = [];
+    routeProjectionHistory = null;
+    directionVotes = [];
+    lastAcceptedRoutePoint = null;
+    latestGpsPosition = null;
+    terminalCandidate = null;
+    terminalStillSince = 0;
+    terminalAnchor = null;
+    currentStopStatus = null;
+    processingPosition = false;
+    commuteHistory = [];
+
+    await update(ref(db, "shuttle/small"), {
+        status: "offline",
+        stopStatus: null,
+        etaStatus: null,
+        timestamp: 0
+    });
+
+    await update(ref(db, "shuttle/medium"), {
+        status: "offline",
+        stopStatus: null,
+        etaStatus: null,
+        timestamp: 0
+    });
+
+    document.getElementById("btn-small").className = type === "small" ? "active-small" : "";
+    document.getElementById("btn-medium").className = type === "medium" ? "active-medium" : "";
+    document.getElementById("status").innerText = "狀態：📍 啟動定位中...";
+
+    watchId = navigator.geolocation.watchPosition((pos) => {
+        if (checkAndTriggerKillSwitch(type)) return;
+        latestGpsPosition = pos;
+    }, (err) => {
+        document.getElementById("status").innerText =
+            "狀態：❌ GPS 失敗 - " + err.message;
+    }, {
+        enableHighAccuracy: true,
+        maximumAge: 3000,
+        timeout: 10000
+    });
+
+    locationSampleTimer = setInterval(() => processLatestPosition(type), GPS_SAMPLE_INTERVAL);
+
+    autoStopTimer = setInterval(() => {
+        if (selectedType) {
+            checkAndTriggerKillSwitch(selectedType);
+
+            if (lastPosition) {
+                calculateAndPushETA(
+                    selectedType,
+                    lastPosition.lat,
+                    lastPosition.lng,
+                    lastPosition.direction,
+                    true
+                );
+            }
+        }
+    }, GOOGLE_ETA_INTERVAL);
+};
+
+window.stopTracking = async () => {
+    if (!selectedType) return;
+
+    await uploadHistory();
+
+    if (watchId) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+    }
+
+    if (autoStopTimer) {
+        clearInterval(autoStopTimer);
+        autoStopTimer = null;
+    }
+
+    if (locationSampleTimer) {
+        clearInterval(locationSampleTimer);
+        locationSampleTimer = null;
+    }
+
+    await update(ref(db, "shuttle/" + selectedType), {
+        status: "offline",
+        stopStatus: null,
+        etaStatus: null,
+        timestamp: 0,
+        sessionId: mySessionId,
+        deviceId: myDeviceId
+    });
+
+    document.getElementById("status").innerText = "狀態：🔴 已停止追蹤";
+    document.getElementById("direction").innerText = "方向：--";
+    document.getElementById("eta").innerText = "預估抵達園區：--";
+
+    selectedType = null;
+};
+
+window.addEventListener("beforeunload", () => {
+    if (selectedType) {
+        uploadHistory();
+
+        update(ref(db, "shuttle/" + selectedType), {
+            timestamp: 0,
+            status: "offline",
+            stopStatus: null,
+            etaStatus: null,
+            sessionId: mySessionId,
+            deviceId: myDeviceId
+        });
+    }
+});
+
+window.addEventListener("pagehide", () => {
+    if (selectedType) {
+        uploadHistory();
+    }
+});
+
+setInterval(() => {
+    if (selectedType) {
+        checkAndTriggerKillSwitch(selectedType);
+    }
+}, 30000);
+
+</script>
+
+</body>
+</html>
