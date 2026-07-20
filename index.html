@@ -221,9 +221,13 @@ function getBusStatus(bus, nowTime = new Date()) {
     if (!bus) return "offline";
     if (bus.status === "scheduled") return "scheduled";
     if (bus.status === "offline") return "offline";
-    if (!bus.timestamp || bus.timestamp === 0) return "offline";
+    const stopStatus = normalizeStopStatus(bus);
+    const freshnessTimestamp = stopStatus
+        ? Number(bus.heartbeatAt || bus.gpsUpdatedAt || bus.timestamp)
+        : Number(bus.gpsUpdatedAt || bus.timestamp);
+    if (!freshnessTimestamp) return "offline";
 
-    const age = Date.now() - Number(bus.timestamp);
+    const age = Date.now() - freshnessTimestamp;
     if (!Number.isFinite(age) || age > GPS_OFFLINE_MS) return "offline";
 
     return "online";
@@ -503,10 +507,12 @@ function updateBusUI(type, data, currentStatus) {
         return;
     }
 
-    // 司機端確認在A8停留後，由 stopStatus 顯示準備返回。
+    // A8停靠時仍顯示 Driver 取得的 A8→園區 ETA。
     if (stopStatus === "atA8") {
         directionEl.innerHTML = "📍 到達A8機捷站";
-        etaEl.innerHTML = "準備返回";
+        etaEl.innerHTML = etaValue === null || etaValue === undefined
+            ? "返回時間計算中"
+            : Math.max(0, Math.round(etaValue)) + " 分鐘";
         return;
     }
 
