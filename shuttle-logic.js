@@ -102,12 +102,18 @@
       this.initialEvidenceCount = settings.initialEvidenceCount || 3;
       this.reverseEvidenceCount = settings.reverseEvidenceCount || 4;
       this.minProgressMeters = settings.minProgressMeters || 12;
+      this.turnZones = settings.turnZones || [];
+      this.turnExitMinPoints = settings.turnExitMinPoints || 2;
+      this.turnExitMinProgress = settings.turnExitMinProgress || 20;
       this.direction = 'unknown';
       this.lastFix = null;
       this.lastProjections = null;
       this.candidateDirection = null;
       this.candidateCount = 0;
       this.candidateProgress = 0;
+      this.wasInTurnZone = false;
+      this.turnExitPoints = 0;
+      this.turnExitProgress = 0;
     }
 
     force(direction) {
@@ -126,6 +132,38 @@
 
       const projections = {};
       for (const route of this.routes) projections[route.name] = projectToRoute(fix.lat, fix.lng, route);
+      const inTurnZone = this.turnZones.some(zone =>
+        distanceMeters(fix.lat, fix.lng, zone.lat, zone.lng) <= Number(zone.radiusMeters || 0)
+      );
+      const movedMeters = this.lastFix
+        ? distanceMeters(this.lastFix.lat, this.lastFix.lng, fix.lat, fix.lng)
+        : 0;
+
+      if (inTurnZone) {
+        this.wasInTurnZone = true;
+        this.turnExitPoints = 0;
+        this.turnExitProgress = 0;
+        this.candidateDirection = null;
+        this.candidateCount = 0;
+        this.candidateProgress = 0;
+        this.lastFix = { lat: fix.lat, lng: fix.lng, timestamp: fix.timestamp };
+        this.lastProjections = projections;
+        return this.direction;
+      }
+
+      if (this.wasInTurnZone) {
+        this.turnExitPoints += 1;
+        this.turnExitProgress += movedMeters;
+        this.lastFix = { lat: fix.lat, lng: fix.lng, timestamp: fix.timestamp };
+        this.lastProjections = projections;
+        if (this.turnExitPoints >= this.turnExitMinPoints &&
+            this.turnExitProgress >= this.turnExitMinProgress) {
+          this.wasInTurnZone = false;
+          this.turnExitPoints = 0;
+          this.turnExitProgress = 0;
+        }
+        return this.direction;
+      }
 
       if (this.lastProjections) {
         const evidence = [];
