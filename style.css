@@ -1,30 +1,32 @@
-body{font-family:-apple-system,sans-serif;background:#f4f7f6;padding:20px;color:#333;}
-.title{text-align:center;margin-bottom:20px;}
-.card{background:white;border-radius:15px;padding:20px;box-shadow:0 4px 10px rgba(0,0,0,0.1);margin-bottom:20px;position: relative;}
-.card-title{font-size:1.2rem;font-weight:bold;margin-bottom:15px;}
-.decision-box{padding:15px;border-radius:10px;font-weight:bold;font-size:1.2rem;margin:15px 0;transition:all 0.3s ease;text-align:center;}
+*{box-sizing:border-box;}
+:root{--page-bg:#f4f7f6;--card-bg:#fff;--ink:#263238;--muted:#64727a;--line:#e4eaec;--accent:#1769aa;}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--page-bg);padding:20px;color:var(--ink);max-width:1180px;margin:0 auto;line-height:1.55;}
+.title{text-align:center;margin:4px 0 22px;font-size:clamp(1.35rem,2.2vw,1.8rem);letter-spacing:.03em;color:#183b56;}
+.card{background:var(--card-bg);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:18px;position:relative;box-shadow:0 3px 12px rgba(35,55,65,.08);}
+.card-title{font-size:1.15rem;font-weight:750;margin-bottom:14px;color:#183b56;display:flex;align-items:center;gap:6px;}
+.decision-box{padding:13px 16px;border-radius:10px;font-weight:750;font-size:1.1rem;margin:12px 0 16px;transition:background .2s ease,border-color .2s ease;text-align:center;min-height:48px;display:flex;align-items:center;justify-content:center;}
 .go-walk{background:#e8f5e9;color:#2e7d32;border:2px solid #2e7d32;}
 .wait-bus{background:#e3f2fd;color:#1565c0;border:2px solid #1565c0;}
 .warning{background:#fff3e0;color:#ef6c00;border:2px solid #ef6c00;}
-.bus-card{border:1px solid #ddd;border-radius:10px;padding:15px;margin-top:15px;}
+.bus-card{border:1px solid #dfe6e8;border-radius:10px;padding:15px;margin-top:12px;background:#fbfcfc;}
 .bus-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
 .bus-name{font-size:1.1rem;font-weight:bold;}
 .online{color:#2e7d32;font-weight:bold;}
 .offline{color:#999;}
 .route-error{color:#d32f2f;font-weight:bold;animation: blink 1.5s infinite;}
 @keyframes blink {50% { opacity: 0.5; }}
-.stats{display:flex;justify-content:space-around;margin-top:15px;}
-.stat-item{flex:1;text-align:center;}
-.time{font-size:1.5rem;font-weight:bold;display:block;}
-.label{font-size:0.8rem;color:#666;}
-.weather{font-size:1rem;line-height:1.8;}
+.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:15px;}
+.stat-item{background:#f7fafb;border:1px solid #edf1f2;border-radius:10px;padding:10px;text-align:center;}
+.time{font-size:1.45rem;font-weight:750;display:block;color:#173f58;}
+.label{font-size:0.82rem;color:var(--muted);}
+.weather{font-size:1rem;line-height:1.7;border-top:1px solid var(--line);padding-top:12px;margin-top:14px;}
 
 /* 🎯 天氣備註文字的樣式 */
 .weather-note {
     font-size: 0.85rem; 
     font-weight: normal; 
     color: #666; 
-    margin-left: 10px;
+    margin-left: 8px;
 }
 
 /* 班表排版 */
@@ -53,6 +55,14 @@ body{font-family:-apple-system,sans-serif;background:#f4f7f6;padding:20px;color:
 
 /* 🎯 手機專屬版面微調：縮小間距與字體、強制斷行天氣備註 */
 @media (max-width: 600px) {
+    body{padding:12px;}
+    .title{margin-bottom:15px;}
+    .card{padding:15px;margin-bottom:12px;border-radius:12px;}
+    .card-title{font-size:1.05rem;margin-bottom:11px;}
+    .decision-box{font-size:1rem;margin:10px 0 13px;}
+    .stats{gap:8px;}
+    .stat-item{padding:8px 5px;}
+    .time{font-size:1.25rem;}
     .mrt-grid { grid-template-columns: 1fr; gap: 12px; }
     .card { padding: 15px; }
     .mrt-item { font-size: 0.85rem; padding: 4px 0; }

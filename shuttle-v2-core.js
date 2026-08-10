@@ -74,7 +74,8 @@
     const campusToA8 = Number(input.campusToA8);
     if (input.state === "toA8") {
       const arrivalMinutes = Number(input.currentToA8) + a8ToCampus;
-      return { arrivalMinutes, commuteMinutes: arrivalMinutes + campusToA8 };
+      // 「等車＋車程」的目的地是乘客下車點／A8。
+      return { arrivalMinutes, commuteMinutes: Number(input.currentToA8) };
     }
     if (input.state === "toCampus" || input.state === "toAdvantech") {
       const arrivalMinutes = Number(input.currentToCampus);
@@ -169,8 +170,8 @@
         Number.isFinite(candidate.commuteMinutes)
       )
       .sort((a, b) =>
-        a.arrivalMinutes - b.arrivalMinutes ||
         a.commuteMinutes - b.commuteMinutes ||
+        a.arrivalMinutes - b.arrivalMinutes ||
         String(a.type).localeCompare(String(b.type))
       );
     return valid.length ? { ...valid[0] } : null;

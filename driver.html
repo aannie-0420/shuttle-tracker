@@ -69,6 +69,7 @@ button {
     <div id="info-panel">
         <div id="status">狀態：⚪ 請選擇車型</div>
         <div id="direction">方向：--</div>
+        <!-- 保留 DOM 供程式計算與上傳，司機端不顯示 ETA；Index 仍讀取 Firebase 欄位。 -->
         <div id="eta" class="warn" hidden aria-hidden="true">預估抵達園區：--</div>
         <div id="lat">目前緯度：--</div>
         <div id="lng">目前經度：--</div>
@@ -111,7 +112,8 @@ const NEAR_CAMPUS_RADIUS = 100;
 const NEAR_CAMPUS_EXIT_RADIUS = 130;
 const STOP_RADIUS = 60;
 const TERMINAL_STILL_MS = 60 * 1000;
-const TERMINAL_STILL_RADIUS = 12;
+// GPS 在站點可能有小幅飄移；以 25 公尺容許範圍維持同一段停靠計時。
+const TERMINAL_STILL_RADIUS = 25;
 const DEFAULT_A8_TO_CAMPUS_MIN = 10;
 const DEFAULT_TOTAL_COMMUTE_MIN = 20;
 const AUTO_STOP_HOUR = 19;
@@ -895,12 +897,15 @@ function resetTrackingState() {
             { name: "green2", direction: "toAdvantech", points: ROUTE_POINTS.green2 }
         ],
         turnZones: [
-            // 文明路／文德路及綠線2匯入共同路段：區內凍結既有方向。
-            { lat: 25.06072, lng: 121.37877, radiusMeters: 65 },
-            { lat: 25.05651, lng: 121.37872, radiusMeters: 65 },
+            // 轉彎區只凍結短暫的方向證據，避免長距離無法更新方向。
+            // 文明路／文德路及綠線2匯入共同路段。
+            { lat: 25.06072, lng: 121.37877, radiusMeters: 35 },
+            { lat: 25.05651, lng: 121.37872, radiusMeters: 35 },
             // 紅線復興二路接文昌五街。
-            { lat: 25.05482, lng: 121.37621, radiusMeters: 70 }
+            { lat: 25.05482, lng: 121.37621, radiusMeters: 40 }
         ],
+        turnExitMinPoints: 2,
+        turnExitMinProgress: 10,
         minMoveMeters: DIRECTION_MIN_MOVE,
         maxAccuracy: DIRECTION_MAX_ACCURACY,
         maxRouteDistance: ROUTE_MATCH_MAX_DISTANCE
@@ -1055,4 +1060,3 @@ trackingWindowTimer = setInterval(syncTrackingWindow, 30000);
 
 </body>
 </html>
-
