@@ -74,8 +74,11 @@
     const campusToA8 = Number(input.campusToA8);
     if (input.state === "toA8") {
       const arrivalMinutes = Number(input.currentToA8) + a8ToCampus;
-      // 「等車＋車程」的目的地是乘客下車點／A8。
-      return { arrivalMinutes, commuteMinutes: Number(input.currentToA8) };
+      // 車輛已前往 A8，乘客下一次可搭乘時間要等它返回園區再前往 A8。
+      return {
+        arrivalMinutes,
+        commuteMinutes: Number(input.currentToA8) + a8ToCampus + campusToA8
+      };
     }
     if (input.state === "toCampus" || input.state === "toAdvantech") {
       const arrivalMinutes = Number(input.currentToCampus);

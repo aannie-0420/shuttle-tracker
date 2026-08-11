@@ -78,15 +78,41 @@
     };
   }
 
+  function calculateLiveCommute(data, source) {
+    const fallback = finiteMinutes(
+      source === "google" ? data.totalCommute : data.routeTotalCommute,
+      true
+    );
+    const state = data.stopStatus || data.terminalStatus || data.direction || data.etaStatus;
+    const currentToA8 = finiteMinutes(data.currentToA8, true);
+    const currentToCampus = finiteMinutes(data.currentToCampus, true);
+    const a8ToCampus = finiteMinutes(data.a8ToCampus, true);
+    const campusToA8 = finiteMinutes(data.campusToA8, true);
+
+    if (state === "toA8" && currentToA8 !== null &&
+        a8ToCampus !== null && campusToA8 !== null) {
+      return currentToA8 + a8ToCampus + campusToA8;
+    }
+    if ((state === "toAdvantech" || state === "toCampus") &&
+        currentToCampus !== null && campusToA8 !== null) {
+      return currentToCampus + campusToA8;
+    }
+    if (state === "atA8" && a8ToCampus !== null && campusToA8 !== null) {
+      return a8ToCampus + campusToA8;
+    }
+    if ((state === "atCampus" || state === "campus" || state === "campusReady") &&
+        campusToA8 !== null) {
+      return campusToA8;
+    }
+    return fallback;
+  }
+
   function candidate(type, data, source, { now, schedules } = {}) {
     const arrival = finiteMinutes(
       source === "google" ? data.etaToCampus : data.routeEtaToCampus,
       true
     );
-    let commute = finiteMinutes(
-      source === "google" ? data.totalCommute : data.routeTotalCommute,
-      true
-    );
+    let commute = calculateLiveCommute(data, source);
     if (arrival === null || commute === null) return null;
 
     const stopStatus = data.stopStatus || data.terminalStatus || null;

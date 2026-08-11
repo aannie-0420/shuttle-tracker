@@ -18,8 +18,8 @@
     if (state === 'toA8' && currentToA8 !== null && a8ToCampus !== null && campusToA8 !== null) {
       return {
         etaToCampus: currentToA8 + a8ToCampus,
-        // 通勤建議的目的地是 A8，不是完成一趟往返循環。
-        totalCommute: currentToA8
+        // 車輛已前往 A8，乘客下一次可搭乘時間要等它返回園區再前往 A8。
+        totalCommute: currentToA8 + a8ToCampus + campusToA8
       };
     }
     if (state === 'toAdvantech' && currentToCampus !== null && campusToA8 !== null) {
