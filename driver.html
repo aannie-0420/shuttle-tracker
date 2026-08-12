@@ -116,6 +116,8 @@ const TERMINAL_STILL_MS = 60 * 1000;
 const TERMINAL_STILL_RADIUS = 25;
 const DEFAULT_A8_TO_CAMPUS_MIN = 10;
 const DEFAULT_TOTAL_COMMUTE_MIN = 20;
+const FALLBACK_SPEED_KPH = 25;
+const FALLBACK_ROAD_FACTOR = 1.35;
 const AUTO_STOP_HOUR = 19;
 
 let selectedType = null;
@@ -166,6 +168,10 @@ let lastEtaToCampus = null;
 let lastTotalCommute = null;
 let lastTrafficTime = null;
 let lastEtaStatus = null;
+let lastEtaSource = "unknown";
+let routeStatus = "unknown";
+let lastCoordinateEtaToCampus = null;
+let lastCoordinateTotalCommute = null;
 let lastGoogleUpdate = 0;
 let lastGoogleAttempt = 0;
 let etaRequestInFlight = false;
@@ -340,6 +346,46 @@ function getElementMinutes(element) {
     return Math.max(1, Math.round(duration.value / 60));
 }
 
+function buildCoordinateFallbackModel(lat, lng, direction) {
+    const a8ToCampus = lastA8ToCampus || DEFAULT_A8_TO_CAMPUS_MIN;
+    const campusToA8 = lastCampusToA8 || DEFAULT_A8_TO_CAMPUS_MIN;
+    if (direction === "toA8") {
+        const currentToA8 = ShuttleV2Core.estimateCoordinateMinutes({
+            origin: { lat, lng },
+            destination: A8_STATION_GPS,
+            speedKph: FALLBACK_SPEED_KPH,
+            roadFactor: FALLBACK_ROAD_FACTOR
+        });
+        if (currentToA8 === null) return null;
+        return {
+            etaToCampus: currentToA8 + a8ToCampus,
+            totalCommute: currentToA8 + a8ToCampus + campusToA8,
+            currentToA8,
+            currentToCampus: null,
+            a8ToCampus,
+            campusToA8
+        };
+    }
+    if (direction === "toAdvantech") {
+        const currentToCampus = ShuttleV2Core.estimateCoordinateMinutes({
+            origin: { lat, lng },
+            destination: LIN_KOU_CAMPUS,
+            speedKph: FALLBACK_SPEED_KPH,
+            roadFactor: FALLBACK_ROAD_FACTOR
+        });
+        if (currentToCampus === null) return null;
+        return {
+            etaToCampus: currentToCampus,
+            totalCommute: currentToCampus + campusToA8,
+            currentToA8: null,
+            currentToCampus,
+            a8ToCampus,
+            campusToA8
+        };
+    }
+    return null;
+}
+
 function isGoogleEtaServiceTime(now = new Date()) {
     return ShuttleV2Core.isGoogleEtaTime(now);
 }
@@ -511,6 +557,25 @@ async function calculateAndPushETA(runningType, lat, lng, direction) {
         return;
     }
 
+    // 偏離既定折線時，不沿用舊 Google ETA，也不再用可能繞遠路的 API 結果；
+    // 直接使用當下座標的保守估算，避免舊資料或異常道路結果造成時間暴增。
+    if (routeStatus === "offRoute") {
+        const fallbackModel = buildCoordinateFallbackModel(lat, lng, direction);
+        if (fallbackModel) {
+            lastEtaToCampus = fallbackModel.etaToCampus;
+            lastTotalCommute = fallbackModel.totalCommute;
+            lastCoordinateEtaToCampus = fallbackModel.etaToCampus;
+            lastCoordinateTotalCommute = fallbackModel.totalCommute;
+            lastCurrentToA8 = fallbackModel.currentToA8;
+            lastCurrentToCampus = fallbackModel.currentToCampus;
+            lastA8ToCampus = fallbackModel.a8ToCampus;
+            lastCampusToA8 = fallbackModel.campusToA8;
+            lastEtaSource = "coordinate";
+            await updateFirebaseETA(runningType, false);
+        }
+        return;
+    }
+
     if (!ShuttleV2Core.isEtaCycleDue({
         lastAttemptAt: lastGoogleAttempt,
         now,
@@ -583,6 +648,7 @@ async function calculateAndPushETA(runningType, lat, lng, direction) {
         lastEtaToCampus = model.etaToCampus;
         lastTotalCommute = model.totalCommute;
         lastTrafficTime = lastCampusToA8;
+        lastEtaSource = "google";
         lastGoogleUpdate = Date.now();
         await updateFirebaseETA(runningType, true);
         const cycleRecord = ShuttleV2Core.buildEtaCycleRecord({
@@ -635,10 +701,24 @@ async function calculateAndPushETA(runningType, lat, lng, direction) {
                 cycleRecord
             );
             await update(ref(db, "shuttle/" + runningType), {
-                googleAttemptedAt: lastGoogleAttempt,
-                googleCycleId: cycleId,
-                googleCycleStatus: "failed"
+            googleAttemptedAt: lastGoogleAttempt,
+            googleCycleId: cycleId,
+                googleCycleStatus: "failed",
+                etaSource: "coordinate"
             });
+            const fallbackModel = buildCoordinateFallbackModel(lat, lng, direction);
+            if (fallbackModel) {
+                lastEtaToCampus = fallbackModel.etaToCampus;
+                lastTotalCommute = fallbackModel.totalCommute;
+                lastCoordinateEtaToCampus = fallbackModel.etaToCampus;
+                lastCoordinateTotalCommute = fallbackModel.totalCommute;
+                lastCurrentToA8 = fallbackModel.currentToA8;
+                lastCurrentToCampus = fallbackModel.currentToCampus;
+                lastA8ToCampus = fallbackModel.a8ToCampus;
+                lastCampusToA8 = fallbackModel.campusToA8;
+                lastEtaSource = "coordinate";
+                await updateFirebaseETA(runningType, false);
+            }
         }
     } finally {
         etaRequestInFlight = false;
@@ -649,9 +729,13 @@ async function updateFirebaseETA(runningType, fromGoogle = false) {
     if (!driverRuntime.canWriteLive(runningType)) return;
     const payload = {
         stopStatus: currentStopStatus,
+        routeStatus,
+        etaSource: lastEtaSource,
         etaStatus: lastEtaStatus,
         etaToCampus: lastEtaToCampus,
         totalCommute: lastTotalCommute,
+        coordinateEtaToCampus: lastCoordinateEtaToCampus,
+        coordinateTotalCommute: lastCoordinateTotalCommute,
         trafficTime: lastTrafficTime,
         currentToA8: lastCurrentToA8,
         a8ToCampus: lastA8ToCampus,
@@ -661,6 +745,7 @@ async function updateFirebaseETA(runningType, fromGoogle = false) {
 
     if (fromGoogle) {
         payload.googleUpdatedAt = lastGoogleUpdate;
+        payload.googleGpsUpdatedAt = lastPosition ? lastPosition.gpsUpdatedAt : null;
     }
 
     await update(ref(db, "shuttle/" + runningType), payload);
@@ -763,6 +848,27 @@ async function processLatestPosition(type) {
                 a8ToCampusMinutes: lastA8ToCampus || DEFAULT_A8_TO_CAMPUS_MIN,
                 maxRouteDistanceMeters: ROUTE_MATCH_MAX_DISTANCE
             });
+        routeStatus = currentStopStatus
+            ? "terminal"
+            : routeModel
+                ? "onRoute"
+                : direction === "unknown" ? "unknown" : "offRoute";
+
+        const coordinateModel = buildCoordinateFallbackModel(latitude, longitude, direction);
+        if (coordinateModel) {
+            lastCoordinateEtaToCampus = coordinateModel.etaToCampus;
+            lastCoordinateTotalCommute = coordinateModel.totalCommute;
+        }
+        if (routeStatus === "offRoute" && coordinateModel) {
+            // 立即以新座標取代舊 ETA，避免等待下一個 Google cycle 才消除暴增值。
+            lastEtaToCampus = coordinateModel.etaToCampus;
+            lastTotalCommute = coordinateModel.totalCommute;
+            lastCurrentToA8 = coordinateModel.currentToA8;
+            lastCurrentToCampus = coordinateModel.currentToCampus;
+            lastA8ToCampus = coordinateModel.a8ToCampus;
+            lastCampusToA8 = coordinateModel.campusToA8;
+            lastEtaSource = "coordinate";
+        }
 
         lastPosition = { lat: latitude, lng: longitude, direction, gpsUpdatedAt: sourceTimestamp };
         driverRuntime.queueArchivePoint({
@@ -783,8 +889,12 @@ async function processLatestPosition(type) {
             direction,
             stopStatus: currentStopStatus,
             etaStatus: lastEtaStatus,
+            routeStatus,
+            etaSource: lastEtaSource,
             etaToCampus: lastEtaToCampus,
             totalCommute: lastTotalCommute,
+            coordinateEtaToCampus: lastCoordinateEtaToCampus,
+            coordinateTotalCommute: lastCoordinateTotalCommute,
             trafficTime: lastTrafficTime,
             routeEtaToCampus: routeModel ? routeModel.arrivalMinutes : null,
             routeTotalCommute: routeModel ? routeModel.commuteMinutes : null,
@@ -879,6 +989,10 @@ function resetTrackingState() {
     lastTotalCommute = null;
     lastTrafficTime = null;
     lastEtaStatus = null;
+    lastEtaSource = "unknown";
+    routeStatus = "unknown";
+    lastCoordinateEtaToCampus = null;
+    lastCoordinateTotalCommute = null;
     lastGoogleUpdate = 0;
     lastGoogleAttempt = 0;
     etaRequestInFlight = false;

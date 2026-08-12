@@ -326,6 +326,17 @@
     return 2 * radius * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
   }
 
+  // Google ETA 無法取得時的保守座標估算；加入道路繞行係數，避免直線距離過度低估。
+  function estimateCoordinateMinutes({ origin, destination, speedKph = 25, roadFactor = 1.35 } = {}) {
+    if (!origin || !destination) return null;
+    const distance = distanceMeters(origin, destination);
+    const speed = Number(speedKph);
+    const factor = Number(roadFactor);
+    if (!Number.isFinite(distance) || !Number.isFinite(speed) || speed <= 0 ||
+        !Number.isFinite(factor) || factor <= 0) return null;
+    return Math.max(1, Math.ceil((distance * factor / 1000) / speed * 60));
+  }
+
   function shouldAcceptDirectionSample({ previous, next, minMoveMeters = 2, maxAccuracy = 80 }) {
     if (!next || !Number.isFinite(next.lat) || !Number.isFinite(next.lng)) return false;
     if (Number(next.accuracy) > Number(maxAccuracy)) return false;
@@ -446,6 +457,7 @@
     allowedWriteScopes,
     canCommitSelection,
     isGpsFresh,
+    estimateCoordinateMinutes,
     shouldAcceptDirectionSample,
     normalizeGoogleEtaResult,
     normalizeVehiclePayload,
