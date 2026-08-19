@@ -37,6 +37,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 .next-shuttle {background-color: #fff9c4 !important;border-left: 4px solid #fbc02d;}
 .bus-time-text{font-weight:bold; font-variant-numeric:tabular-nums;}
 .bus-note{font-size:0.75rem; color:#e65100; background:#fff3e0; padding:2px 6px; border-radius:4px; white-space:nowrap; margin-left:4px; font-weight:bold;}
+.schedule-loop{padding:6px 8px;margin:4px 0;line-height:1.45;}
+.schedule-loop-description{font-size:0.85rem;color:#555;}
 
 .mrt-grid {display: grid;grid-template-columns: 1fr 1fr;gap: 15px;}
 .mrt-column {background: #f9f9f9;padding: 12px;border-radius: 8px;border: 1px solid #eee;}
