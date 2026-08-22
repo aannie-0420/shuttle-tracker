@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google ETA 回覆時間測試</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, -apple-system, "Microsoft JhengHei", sans-serif; }
+    body { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; color: #17324d; background: #f5f8fb; }
+    main { background: #fff; border-radius: 16px; padding: 24px; box-shadow: 0 6px 24px rgba(17, 52, 87, .1); }
+    h1 { margin: 0 0 10px; font-size: 1.35rem; }
+    p { line-height: 1.6; }
+    .notice { padding: 12px; border-radius: 10px; background: #fff8e8; color: #765107; font-size: .93rem; }
+    button { width: 100%; margin: 12px 0; padding: 13px; border: 0; border-radius: 10px; background: #1267b3; color: #fff; font-weight: 700; font-size: 1rem; cursor: pointer; }
+    button:disabled { background: #9aa9b7; cursor: not-allowed; }
+    #status { min-height: 1.5em; font-weight: 700; }
+    #summary { margin: 14px 0; padding: 12px; border-radius: 10px; background: #eef6ff; line-height: 1.65; }
+    table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+    th, td { padding: 9px 6px; border-bottom: 1px solid #dce5ee; text-align: left; }
+    th { color: #587084; }
+    .ok { color: #147a3b; font-weight: 700; }
+    .bad { color: #b42318; font-weight: 700; }
+    code { font-family: ui-monospace, Consolas, monospace; font-size: .85em; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Google ETA 回覆時間測試</h1>
+    <p>測試路段：研華林口園區 → A8 機捷站。按下按鈕後會依序送出 10 次，使用與 Driver 相同的 <code>DistanceMatrixService</code>、開車模式與即時路況設定。</p>
+    <div class="notice">每筆最多等待 15 秒；測試最長約 150 秒。完成後只會將測試結果寫入 Firebase 的 <code>shuttle/diagnostics/googleLatency</code>，不會修改小巴、中巴即時資料。</div>
+    <button id="run-test" disabled>Google Maps 載入中…</button>
+    <div id="status" aria-live="polite">等待 Google Maps 載入</div>
+    <div id="summary">尚未開始測試。</div>
+    <table>
+      <thead>
+        <tr><th>次數</th><th>回覆時間</th><th>服務狀態</th><th>路徑狀態</th></tr>
+      </thead>
+      <tbody id="results"></tbody>
+    </table>
+  </main>
+
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBYOfPOfRdXpRYxiKTGRMI4a5qTi6e1PFE&libraries=geometry" async></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref, set } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDxDD9jZA25Hk19HF0UUo0f3ZiEWv1azuk",
+      databaseURL: "https://advantech-shuttle-tracker-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "advantech-shuttle-tracker",
+      appId: "1:749819334514:web:582850faa8216c5b7d57eb"
+    };
+    const db = getDatabase(initializeApp(firebaseConfig));
+
+    const TOTAL_REQUESTS = 10;
+    const REQUEST_TIMEOUT_MS = 15 * 1000;
+    const ORIGIN = { lat: 25.057506, lng: 121.381707 };
+    const DESTINATION = { lat: 25.0606478, lng: 121.370454 };
+    const button = document.getElementById("run-test");
+    const statusEl = document.getElementById("status");
+    const summaryEl = document.getElementById("summary");
+    const resultsEl = document.getElementById("results");
+
+    function taipeiDateKey(date = new Date()) {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit"
+      }).formatToParts(date);
+      const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+      return values.year + values.month + values.day;
+    }
+
+    function mapsReady() {
+      return Boolean(window.google && google.maps && google.maps.DistanceMatrixService);
+    }
+
+    function renderSample(sample) {
+      const row = document.createElement("tr");
+      const success = sample.serviceStatus === "OK" && sample.elementStatus === "OK";
+      row.innerHTML = "<td>" + sample.number + "</td>" +
+        "<td>" + sample.elapsedMs + " ms</td>" +
+        "<td class=\"" + (success ? "ok" : "bad") + "\">" + sample.serviceStatus + "</td>" +
+        "<td>" + (sample.elementStatus || "--") + "</td>";
+      resultsEl.appendChild(row);
+    }
+
+    function requestOnce(number) {
+      return new Promise(resolve => {
+        const startedAt = performance.now();
+        let settled = false;
+        const finish = detail => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          resolve({ number, elapsedMs: Math.round(performance.now() - startedAt), ...detail });
+        };
+        const timeoutId = setTimeout(() => finish({ serviceStatus: "TIMEOUT", elementStatus: null }), REQUEST_TIMEOUT_MS);
+
+        try {
+          const service = new google.maps.DistanceMatrixService();
+          service.getDistanceMatrix({
+            origins: [ORIGIN],
+            destinations: [DESTINATION],
+            travelMode: "DRIVING",
+            drivingOptions: { departureTime: new Date(), trafficModel: "bestguess" }
+          }, (response, status) => {
+            const element = response && response.rows && response.rows[0] &&
+              response.rows[0].elements && response.rows[0].elements[0];
+            finish({
+              serviceStatus: status || "NO_STATUS",
+              elementStatus: element && element.status ? element.status : null,
+              trafficSeconds: element && element.duration_in_traffic ? element.duration_in_traffic.value : null
+            });
+          });
+        } catch (error) {
+          finish({ serviceStatus: error && error.name ? error.name : "EXCEPTION", elementStatus: null });
+        }
+      });
+    }
+
+    function summarise(samples) {
+      const successful = samples.filter(sample => sample.serviceStatus === "OK" && sample.elementStatus === "OK");
+      const latency = successful.map(sample => sample.elapsedMs);
+      return {
+        requested: samples.length,
+        successful: successful.length,
+        failedOrTimedOut: samples.length - successful.length,
+        minimumMs: latency.length ? Math.min(...latency) : null,
+        maximumMs: latency.length ? Math.max(...latency) : null,
+        averageMs: latency.length ? Math.round(latency.reduce((sum, value) => sum + value, 0) / latency.length) : null
+      };
+    }
+
+    async function runBenchmark() {
+      button.disabled = true;
+      resultsEl.innerHTML = "";
+      const samples = [];
+      for (let number = 1; number <= TOTAL_REQUESTS; number += 1) {
+        statusEl.textContent = "第 " + number + " / " + TOTAL_REQUESTS + " 次查詢中…";
+        const sample = await requestOnce(number);
+        samples.push(sample);
+        renderSample(sample);
+      }
+
+      const summary = summarise(samples);
+      summaryEl.innerHTML = "成功 " + summary.successful + " / " + summary.requested +
+        " 次；平均回覆時間：" + (summary.averageMs === null ? "--" : summary.averageMs + " ms") +
+        "；最快：" + (summary.minimumMs === null ? "--" : summary.minimumMs + " ms") +
+        "；最慢：" + (summary.maximumMs === null ? "--" : summary.maximumMs + " ms") + "。";
+      statusEl.textContent = "測試完成，正在儲存至 Firebase…";
+
+      const runId = "run_" + Date.now();
+      try {
+        await set(ref(db, "shuttle/diagnostics/googleLatency/" + taipeiDateKey() + "/" + runId), {
+          createdAt: Date.now(),
+          origin: ORIGIN,
+          destination: DESTINATION,
+          timeoutMs: REQUEST_TIMEOUT_MS,
+          samples,
+          summary
+        });
+        statusEl.textContent = "測試完成，結果已儲存至 Firebase。";
+      } catch (error) {
+        statusEl.textContent = "測試完成，但 Firebase 儲存失敗。";
+      }
+    }
+
+    const mapsReadyTimer = setInterval(() => {
+      if (!mapsReady()) return;
+      clearInterval(mapsReadyTimer);
+      button.disabled = false;
+      button.textContent = "開始 Google API 10 次測試";
+      statusEl.textContent = "Google Maps 已就緒。";
+    }, 200);
+    setTimeout(() => {
+      if (!mapsReady()) statusEl.textContent = "Google Maps 載入逾時，請重新整理或確認 API Key 網域限制。";
+    }, REQUEST_TIMEOUT_MS);
+    button.addEventListener("click", runBenchmark);
+  </script>
+</body>
+</html>
