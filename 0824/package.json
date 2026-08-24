@@ -1,0 +1,10 @@
+{
+  "name": "advantech-shuttle-peak-tracking-v2-tests",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/current-shuttle-logic.test.js tests/driver-runtime.integration.test.js tests/driver-google-eta-resilience.test.js tests/index-runtime.integration.test.js tests/index-offroute-ui.test.js tests/index-loop-service.test.js tests/all-day-test-pages.test.js tests/api-latency-page.test.js tests/test-plan-coverage.test.js tests/v2-time-schedule.test.js tests/v2-eta-cycle.test.js tests/v2-ownership-archive.test.js tests/v2-data-quality.test.js",
+    "test:baseline": "node simulator/route-engine.test.js",
+    "test:v2": "node --test tests/v2-*.test.js",
+    "test:coverage": "node --test tests/test-plan-coverage.test.js"
+  }
+}
