@@ -221,7 +221,10 @@
 
   function getSharedTrafficRetryPlan({ hasCachedSuccess, failedAttempts }) {
     const attempts = Math.max(0, Number(failedAttempts) || 0);
-    const shouldRetry = hasCachedSuccess !== true && attempts < 3;
+    // 舊成功快取過期時，要在新 10 分鐘週期實際查一次；
+    // 但失敗後不能在同一週期立即連續重試。
+    const maxAttempts = hasCachedSuccess === true ? 1 : 3;
+    const shouldRetry = attempts < maxAttempts;
     return {
       shouldRetry,
       useFallback: !shouldRetry
