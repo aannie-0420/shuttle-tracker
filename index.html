@@ -16,11 +16,11 @@
     <p id="reasoning"></p>
     <div class="stats">
         <div class="stat-item">
-            <span class="label">預估等車 + 車程</span>
+            <span class="label">等車 + 車程</span>
             <span id="bus-time" class="time">--</span>
         </div>
         <div class="stat-item">
-            <span class="label">預估步行時間</span>
+            <span class="label">步行時間</span>
             <span id="walk-time" class="time">--</span>
         </div>
     </div>
@@ -69,7 +69,7 @@
     <div class="card-title">接駁車班表</div>
     <div class="schedule-grid">
         <div class="schedule-column" id="schedule-small-col">
-            <div class="schedule-title">🚗小巴</div>
+            <div class="schedule-title schedule-title-bus">🚗小巴</div>
             <div class="schedule-item" data-time="10:20"><span class="bus-time-text">10:20</span></div>
             <div class="schedule-item" data-time="11:20"><span class="bus-time-text">11:20</span></div>
             <div class="schedule-item" data-time="12:30"><span class="bus-time-text">12:30</span></div>
@@ -82,7 +82,7 @@
             <div class="schedule-item" data-time="19:40"><span class="bus-time-text">19:40</span></div>
         </div>
         <div class="schedule-column" id="schedule-medium-col">
-            <div class="schedule-title">🚌中巴</div>
+            <div class="schedule-title schedule-title-bus">🚌中巴</div>
             <div class="schedule-item" data-time="17:10"><span class="bus-time-text">17:10</span></div>
             <div class="schedule-item" data-time="17:40"><span class="bus-time-text">17:40</span><span class="bus-note">加開</span></div>
             <div class="schedule-item" data-time="17:55"><span class="bus-time-text">17:55</span><span class="bus-note">調整</span></div>
@@ -452,14 +452,14 @@ function updateBusUI(type, data, currentStatus, lastShuttleDeparted = false) {
 
     // 司機端確認在園區停留後，由 stopStatus 顯示準備發車。
     if (stopStatus === "atCampus") {
-        directionEl.innerHTML = "📍 到達研華園區";
+        directionEl.innerHTML = "到達研華園區";
         etaEl.innerHTML = "準備發車";
         return;
     }
 
     // A8停靠時仍顯示 Driver 取得的 A8→園區 ETA。
     if (stopStatus === "atA8") {
-        directionEl.innerHTML = "📍 到達A8機捷站";
+        directionEl.innerHTML = "到達A8機捷站";
         etaEl.innerHTML = etaValue === null || etaValue === undefined
             ? "返回時間計算中"
             : Math.max(0, Math.round(etaValue)) + " 分鐘" + etaSuffix;
@@ -468,7 +468,7 @@ function updateBusUI(type, data, currentStatus, lastShuttleDeparted = false) {
 
     // 返回園區且距離園區100公尺內，優先顯示指定文字。
     if (etaStatus === "nearCampus") {
-        directionEl.innerHTML = "⬅️ 返回研華園區";
+        directionEl.innerHTML = "返回研華園區";
         etaEl.innerHTML = "即將抵達園區";
         return;
     }
@@ -476,7 +476,7 @@ function updateBusUI(type, data, currentStatus, lastShuttleDeparted = false) {
     // offRoute 僅表示 GPS 暫時未貼合已設定折線，不直接判定司機走錯路。
     // 維持上線狀態及座標估算 ETA，讓乘客知道資料仍在更新。
     if (data && data.routeStatus === "offRoute") {
-        directionEl.innerHTML = "⚠️ 路線暫時偏離";
+        directionEl.innerHTML = "路線暫時偏離";
         etaEl.innerHTML = etaValue === null || etaValue === undefined
             ? "座標估算中"
             : Math.max(0, Math.round(etaValue)) + " 分鐘" + etaSuffix;
@@ -485,10 +485,10 @@ function updateBusUI(type, data, currentStatus, lastShuttleDeparted = false) {
 
     if (effectiveDir === "toA8") {
         if (etaValue === 0) {
-            directionEl.innerHTML = "📍 到達研華園區";
+            directionEl.innerHTML = "到達研華園區";
             etaEl.innerHTML = "準備發車";
         } else {
-            directionEl.innerHTML = "➡️ 前往 A8 機捷站";
+            directionEl.innerHTML = "前往 A8 機捷站";
             etaEl.innerHTML = etaValue === null || etaValue === undefined
                 ? "前往A8中"
                 : Math.max(0, Math.round(etaValue)) + " 分鐘" + etaSuffix;
@@ -497,14 +497,14 @@ function updateBusUI(type, data, currentStatus, lastShuttleDeparted = false) {
     }
 
     if (effectiveDir === "toAdvantech") {
-        directionEl.innerHTML = "⬅️ 返回研華園區";
+        directionEl.innerHTML = "返回研華園區";
         etaEl.innerHTML = etaValue === null || etaValue === undefined
             ? "接駁車返回中"
             : Math.max(0, Math.round(etaValue)) + " 分鐘" + etaSuffix;
         return;
     }
 
-    directionEl.innerHTML = "🚌 行駛中 / 方向確認中";
+    directionEl.innerHTML = "行駛中 / 方向確認中";
     etaEl.innerHTML = etaValue !== null && etaValue !== undefined
         ? Math.max(0, Math.round(etaValue)) + " 分鐘" + etaSuffix
         : "計算中...";
@@ -655,6 +655,7 @@ function updateBestOption(smallBus, mediumBus, statusS, statusM, nowTime) {
 // 只更新允許修改的三個動態區塊
 ////////////////////////////////////////////////////////////
 function updateDynamicPanels(nowTime = new Date()) {
+    ShuttleIndexRuntime.updateLoopServiceHighlight(document, nowTime);
     const smallBus = busData.small;
     const mediumBus = busData.medium;
 

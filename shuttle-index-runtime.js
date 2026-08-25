@@ -54,6 +54,23 @@
     );
   }
 
+  function isLoopServiceActive(now = new Date()) {
+    const date = now instanceof Date ? now : new Date(now);
+    if (Number.isNaN(date.getTime())) return false;
+    const minutes = date.getHours() * 60 + date.getMinutes();
+    return minutes >= 16 * 60 + 35 && minutes <= 18 * 60 + 30;
+  }
+
+  function updateLoopServiceHighlight(root, now = new Date()) {
+    if (!root || typeof root.querySelector !== "function") return false;
+    const loopRow = root.querySelector(".schedule-loop");
+    const active = isLoopServiceActive(now);
+    if (loopRow && loopRow.classList && typeof loopRow.classList.toggle === "function") {
+      loopRow.classList.toggle("next-shuttle", active);
+    }
+    return active;
+  }
+
   function nextScheduleForType(type, schedules, now) {
     const result = core.calculateScheduledCommute({
       now,
@@ -79,6 +96,8 @@
   }
 
   const GOOGLE_STALE_MS = 5 * 60 * 1000;
+  // Driver 每 90 秒完成一輪 Google ETA；GPS 每 2 秒更新，不應因這段落差立即捨棄成功 ETA。
+  const GOOGLE_GPS_ALIGNMENT_MS = 90 * 1000;
 
   function hasFreshGoogleEta(data, now) {
     if (!data || data.googleCycleStatus !== "success") return false;
@@ -88,7 +107,8 @@
     if (Number(now) - updatedAt > GOOGLE_STALE_MS) return false;
     const googleGpsAt = Number(data.googleGpsUpdatedAt);
     const gpsAt = Number(data.gpsUpdatedAt);
-    return !Number.isFinite(googleGpsAt) || !Number.isFinite(gpsAt) || googleGpsAt >= gpsAt;
+    return !Number.isFinite(googleGpsAt) || !Number.isFinite(gpsAt) ||
+      Math.abs(gpsAt - googleGpsAt) <= GOOGLE_GPS_ALIGNMENT_MS;
   }
 
   function hasFreshCoordinateEstimate(data) {
@@ -237,9 +257,12 @@
   return {
     selectIndexVehicle,
     readScheduleEntries,
+    isLoopServiceActive,
+    updateLoopServiceHighlight,
     isOnline,
     hasFreshGoogleEta,
     hasFreshCoordinateEstimate,
-    GPS_STALE_MS
+    GPS_STALE_MS,
+    GOOGLE_GPS_ALIGNMENT_MS
   };
 });

@@ -26,6 +26,20 @@
     return `${values.year}-${values.month}-${values.day}`;
   }
 
+  function formatDirectionText(direction, stopStatus) {
+    if (direction === "toA8") {
+      return stopStatus === "atCampus"
+        ? "到達研華園區，準備發車"
+        : "前往 A8 機捷站";
+    }
+    if (direction === "toAdvantech") {
+      return stopStatus === "atA8"
+        ? "到達 A8 機捷站，準備返回"
+        : "返回研華園區";
+    }
+    return "行駛中 / 方向判定中";
+  }
+
   function readPending(storage) {
     try {
       const value = JSON.parse(storage.getItem(STORAGE_KEY) || "null");
@@ -219,5 +233,10 @@
     };
   }
 
-  return { createDriverRuntime, STORAGE_KEY, LEASE_STALE_MS };
+  return {
+    createDriverRuntime,
+    formatDirectionText,
+    STORAGE_KEY,
+    LEASE_STALE_MS
+  };
 });
