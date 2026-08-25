@@ -33,6 +33,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 .schedule-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
 .schedule-column{border:1px solid #ddd;border-radius:10px;padding:15px;}
 .schedule-title{font-weight:bold;margin-bottom:10px;font-size:1.1rem;}
+.schedule-title-bus{background:transparent;border-bottom:2px solid #cfd8dc;padding-bottom:4px;margin-bottom:8px;border-radius:0;}
+.schedule-title-bus + .schedule-item{margin-top:0;}
 .schedule-item{padding:6px 8px;border-radius:5px;margin:4px 0; display:flex; justify-content:space-between; align-items:center;}
 .next-shuttle {background-color: #fff9c4 !important;border-left: 4px solid #fbc02d;}
 .bus-time-text{font-weight:bold; font-variant-numeric:tabular-nums;}
