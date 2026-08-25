@@ -54,6 +54,23 @@
     );
   }
 
+  function isLoopServiceActive(now = new Date()) {
+    const date = now instanceof Date ? now : new Date(now);
+    if (Number.isNaN(date.getTime())) return false;
+    const minutes = date.getHours() * 60 + date.getMinutes();
+    return minutes >= 16 * 60 + 35 && minutes <= 18 * 60 + 30;
+  }
+
+  function updateLoopServiceHighlight(root, now = new Date()) {
+    if (!root || typeof root.querySelector !== "function") return false;
+    const loopRow = root.querySelector(".schedule-loop");
+    const active = isLoopServiceActive(now);
+    if (loopRow && loopRow.classList && typeof loopRow.classList.toggle === "function") {
+      loopRow.classList.toggle("next-shuttle", active);
+    }
+    return active;
+  }
+
   function nextScheduleForType(type, schedules, now) {
     const result = core.calculateScheduledCommute({
       now,
@@ -240,6 +257,8 @@
   return {
     selectIndexVehicle,
     readScheduleEntries,
+    isLoopServiceActive,
+    updateLoopServiceHighlight,
     isOnline,
     hasFreshGoogleEta,
     hasFreshCoordinateEstimate,

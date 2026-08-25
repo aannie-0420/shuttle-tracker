@@ -655,6 +655,7 @@ function updateBestOption(smallBus, mediumBus, statusS, statusM, nowTime) {
 // 只更新允許修改的三個動態區塊
 ////////////////////////////////////////////////////////////
 function updateDynamicPanels(nowTime = new Date()) {
+    ShuttleIndexRuntime.updateLoopServiceHighlight(document, nowTime);
     const smallBus = busData.small;
     const mediumBus = busData.medium;
 

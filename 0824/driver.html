@@ -302,20 +302,7 @@ function getTerminalStopStatus(lat, lng) {
 }
 
 function directionText(direction, lat, lng) {
-    const distanceToCampus = distanceMeters(lat, lng, LIN_KOU_CAMPUS.lat, LIN_KOU_CAMPUS.lng);
-    const distanceToA8 = distanceMeters(lat, lng, A8_STATION_GPS.lat, A8_STATION_GPS.lng);
-
-    if (direction === "toA8") {
-        if (currentStopStatus === "atCampus") return "📍 到達研華園區，準備發車";
-        return "➡️ 前往 A8 機捷站";
-    }
-
-    if (direction === "toAdvantech") {
-        if (currentStopStatus === "atA8") return "📍 到達 A8 機捷站，準備返回";
-        return "⬅️ 返回研華園區";
-    }
-
-    return "🚌 行駛中 / 方向判定中";
+    return ShuttleDriverRuntime.formatDirectionText(direction, currentStopStatus);
 }
 
 function addHistory(entry) {
@@ -1263,7 +1250,7 @@ window.selectBus = async (type) => {
         document.getElementById("status").innerText =
             ShuttleV2Core.isPeakTrackingTime(new Date())
                 ? "狀態：📍 啟動定位中..."
-                : "狀態：🟢 已選車，17:00 開始動態追蹤";
+                : "狀態：🟢 已選車，07:30 開始動態追蹤";
 
         heartbeatTimer = setInterval(() => sendHeartbeat(type), HEARTBEAT_INTERVAL);
         await sendHeartbeat(type);

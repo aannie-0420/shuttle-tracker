@@ -27,7 +27,7 @@
   function isPeakTrackingTime(dateInput) {
     const parts = taipeiParts(dateInput);
     const seconds = Number(parts.hour) * 3600 + Number(parts.minute) * 60 + Number(parts.second);
-    return seconds >= 17 * 3600 && seconds < 19 * 3600;
+    return seconds >= 7 * 3600 + 30 * 60 && seconds < 19 * 3600;
   }
 
   function isGoogleEtaTime(dateInput) {
